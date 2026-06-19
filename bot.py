@@ -26,20 +26,20 @@ PRIVILEGED_USERS = {
     554392195
 }
 
-def save_to_google_sheet(row):
+def save_to_google_sheet(worksheet_name, row):
     """Append one row to the Google Sheet. Reconnects each time (fine at this scale)."""
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).sheet1
+    sheet = client.open_by_key(SHEET_ID).worksheet(worksheet_name)
     sheet.append_row(row)
 
-ASK_NAME, ASK_GOAL = range(2)
+ASK_NAME, ASK_GOAL, ASK_IMPACT = range(3)
 
 web_app = Flask(__name__)
 @web_app.route("/")
 def home():
-    return "Hello, this is the Telegram bot running with Flask!"
+    return "Hello, this is our LBE Zone OTHERS bot!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -71,17 +71,46 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     try:
-        save_to_google_sheet([name, str(user_id), goal])
+        save_to_google_sheet("Users", [name, str(user_id), goal])
         await update.message.reply_text(
             "🎯 GOAL LOCKED IN! \n\n"
             "You are officially registered. Go out there, bring the fire, and make a difference! "
-            "Use /milestones to see what we are chasing together!"
+            "Use /impact to log a good deed and /milestones to see what we are chasing together!"
         )
 
     except Exception as e:
         print(f"[error] could not save to Google Sheet: {e}")
         await update.message.reply_text(
             "Hmm, I had trouble saving that just now. Please try /start again in a moment."
+        )
+
+    return ConversationHandler.END
+
+async def impact_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🔥 Love it! What did you do to make an impact?\n\n"
+        "(e.g., 'Made a study care pack for my friends', 'Bought a birthday gift for a friend')"
+    )
+
+    return ASK_IMPACT
+
+async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    good_deed = update.message.text.strip()
+    name = update.effective_user.first_name or "friend"
+    user_id = update.effective_user.id
+
+    try:
+        save_to_google_sheet("Impacts", [name, str(user_id), good_deed])
+        await update.message.reply_text(
+            "🙌 AMAZING! That's another impact logged!\n\n"
+            "Every act counts towards our 1000 goal. Keep bringing the fire! 🔥\n"
+            "Use /milestones to see how far we've come."
+        )
+
+    except Exception as e:
+        print(f"[error] could not save to Impacts tab: {e}")
+        await update.message.reply_text(
+            "Hmm, I had trouble saving that just now. Please try /impact again in a moment."
         )
 
     return ConversationHandler.END
@@ -131,9 +160,8 @@ async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     cg_text = (
         "👥 <b>LBE2 BREAKDOWN</b>\n"
-        "• Micah: 15 impacts (Goal: 50)\n"
-        "• Ian: 22 impacts (Goal: 30)\n"
-        "• Siau Lin: 8 impacts (Goal: 20)"
+        "• Micah: 15 impacts (Goal: 30)\n"
+        "• Ian: 22 impacts (Goal: 10)\n"
     )
 
     await update.message.reply_text(cg_text, parse_mode="HTML")
@@ -151,6 +179,15 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     app.add_handler(onboarding)
+
+    impact_conversation = ConversationHandler(
+        entry_points=[CommandHandler("impact", impact_start)],
+        states={
+            ASK_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_impact)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    app.add_handler(impact_conversation)
 
     app.add_handler(CommandHandler("milestones", milestones))
     app.add_handler(CommandHandler("leaderboard", leaderboard))
