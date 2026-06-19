@@ -34,6 +34,29 @@ def save_to_google_sheet(worksheet_name, row):
     sheet = client.open_by_key(SHEET_ID).worksheet(worksheet_name)
     sheet.append_row(row)
 
+def get_user_impact_count(user_id):
+    """Counts how many impacts this user has logged."""
+    credentials_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    credentials = Credentials.from_service_account_info(credentials_info, scopes=SCOPES)
+    client = gspread.authorize(credentials)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Impacts")
+    rows = sheet.get_all_values()
+
+    return sum(1 for row in rows if len(row) > 1 and row[1] == str(user_id))
+
+def get_user_goal(user_id):
+    """Look up the goal this user set during /start"""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Users")
+    rows = sheet.get_all_values()
+    # Users columns: Name | Telegram ID | Goal  (Telegram ID = index 1, Goal = index 2)
+    for row in rows:
+        if len(row) > 2 and row[1] == str(user_id):
+            return row[2]
+    return None
+
 ASK_NAME, ASK_GOAL, ASK_IMPACT = range(3)
 
 web_app = Flask(__name__)
@@ -101,9 +124,24 @@ async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         save_to_google_sheet("Impacts", [name, str(user_id), good_deed])
+        count = get_user_impact_count(user_id)
+        goal = get_user_goal(user_id)
+
+        if goal:
+            stats_line = (
+                f"📊 You've now logged {count} impact(s)!\n"
+                f"🎯 Your goal: {goal}"
+            )
+        else:
+            stats_line = (
+                f"📊 You've now logged {count} impact(s)!\n"
+                "(Tip: run /start to set your personal goal.)"
+            )
+
         await update.message.reply_text(
             "🙌 AMAZING! That's another impact logged!\n\n"
-            "Every act counts towards our 1000 goal. Keep bringing the fire! 🔥\n"
+            "Every act counts towards our 1000 goal. Keep bringing the fire! 🔥\n\n"
+            f"{stats_line}\n\n"
             "Use /milestones to see how far we've come."
         )
 
