@@ -23,7 +23,7 @@ SCOPES = [
 ]
 
 PRIVILEGED_USERS = {
-    554392195
+    
 }
 
 def save_to_google_sheet(worksheet_name, row):
