@@ -24,7 +24,10 @@ SCOPES = [
 ]
 
 PRIVILEGED_USERS = {
-    554392195
+    554392195,
+    929278147,
+    851771524,
+    32922725
 }
 
 def save_to_google_sheet(worksheet_name, row):
@@ -63,6 +66,52 @@ def get_user_impact_count(user_id):
 
     return sum(1 for row in rows if len(row) > 1 and row[1] == str(user_id))
 
+def get_total_impacts():
+    """Counts the TOTAL number of impacts logged by everyone (for the zone progress)."""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Impacts")
+    rows = sheet.get_all_values()
+
+    # Count data rows only (those with a numeric Telegram ID in column 2; skips the header)
+    return sum(1 for row in rows if len(row) > 1 and row[1].isdigit())
+
+def get_impact_counts():
+    """Returns {telegram_id (str): impact_count} for everyone, reading the Impacts tab once."""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Impacts")
+    rows = sheet.get_all_values()
+
+    counts = {}
+    for row in rows:
+        if len(row) > 1 and row[1].isdigit():
+            counts[row[1]] = counts.get(row[1], 0) + 1
+
+    return counts
+
+def get_all_users():
+    """Returns a list of {name, id, goal, cg} for every registered user, reading Users once."""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Users")
+    rows = sheet.get_all_values()
+
+    users = []
+    for row in rows:
+        if len(row) > 1 and row[1].isdigit():
+            cg = row[3].strip() if len(row) > 3 and row[3].strip() else "(no CG yet)"
+            users.append({
+                "name": row[0] if len(row) > 0 else "",
+                "id": row[1],
+                "goal": row[2] if len(row) > 2 else "",
+                "cg": cg,
+            })
+    return users
+
 def get_user_goal(user_id):
     """Look up the goal this user set during /start"""
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
@@ -77,7 +126,7 @@ def get_user_goal(user_id):
         
     return None
 
-ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL = range(4)
+ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL, ASK_CG = range(5)
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -105,7 +154,19 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = name
     await update.message.reply_text(
         f"Gotcha, {html.escape(name)}! 👋\n\n"
-        "Let's set a goal for yourself for the rest of 2026 --\n\n"
+        "<b>Which CG do you belong to?</b>\n"
+        "<i>Just type it out — e.g. LBE2</i>",
+        parse_mode="HTML"
+    )
+
+    return ASK_CG
+
+async def receive_cg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cg = update.message.text.strip().upper()
+    context.user_data["CG"] = cg
+    await update.message.reply_text(
+        "Got it! 🙌\n\n"
+        "Now let's set a goal for yourself for the rest of 2026 --\n\n"
         "<b>How do you want to bring an impact to Others around you?</b> 🛟\n\n"
         "<i>Just type it out! I'll bring it up every time you log an impact to keep you on track. (Change it anytime with /setgoal)</i>",
         parse_mode="HTML"
@@ -116,14 +177,16 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     goal = update.message.text.strip()
     name = context.user_data.get("name", "friend")
+    cg = context.user_data.get("CG", "")
     user_id = update.effective_user.id
 
     try:
-        save_to_google_sheet("Users", [name, str(user_id), goal])
+        save_to_google_sheet("Users", [name, str(user_id), goal, cg])
         await update.message.reply_text(
-            "🎯 GOAL LOCKED IN! \n\n"
-            "You are officially registered. Go out there, bring the fire, and make a difference! "
-            "Use /impact to log a good deed and /milestones to see what we are chasing together!"
+            "✅ Saved. 🎯 GOAL LOCKED IN!\n\n"
+            "Go out there and change lives!\n\n"
+            "Use /impact to log an impact <i>(anytime, anywhere)</i> and /milestones to see what we're running towards as a Zone!",
+            parse_mode="HTML"
         )
 
     except Exception as e:
@@ -219,13 +282,22 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def milestones(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Publicly shows the milestones towards the 1000 goal."""
+    """Shows the live total progress towards 1000 impacts"""
+    total = get_total_impacts()
+    percent = round(total / 1000 * 100)
+
     milestone_text = (
-        "🏁 <b>ZONE MILESTONES (Goal: 1000)</b>\n\n"
-        "⬜ 250 Impacts: Spark 🪵\n"
-        "⬜ 500 Impacts: Campfire 🔥\n"
-        "⬜ 750 Impacts: Wildfire 🌲\n"
-        "⬜ 1000 Impacts: Inferno 💥"
+        "🏁 <b>Goal: 1000 Impacts</b>\n\n"
+        f"➡️ <i>Current Progress: {total}/1000 ({percent}%)</i>\n\n"
+        "Milestones:\n"
+        "50 Impacts: 🙏🏻\n"
+        "100 Impacts: ✨\n"
+        "200 Impacts: 🔥\n"
+        "350 Impacts: 📛\n"
+        "500 Impacts: 🧨\n"
+        "650 Impacts: 💥\n"
+        "800 Impacts: 🎆\n"
+        "1000 Impacts: 🏁"
     )
 
     await update.message.reply_text(milestone_text, parse_mode="HTML")
@@ -237,14 +309,25 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔒 This command is restricted to Zone Leaders and Admins.")
         return
     
-    leaderboard_text = (
-        "🏆 <b>ZONE LEADERBOARD</b> 🏆\n"
-        "1. LBE2: 340 impacts\n"
-        "2. LBE4: 210 impacts\n\n"
-        "Keep pushing towards the 1,000 zone goal!"
-    )
+    users = get_all_users()
+    counts = get_impact_counts()
 
-    await update.message.reply_text(leaderboard_text, parse_mode="HTML")
+    if not users:
+        await update.message.reply_text("No data yet — no one has registered.")
+        return
+    
+    cg_totals = {}
+    for user in users:
+        cg_totals[user["cg"]] = cg_totals.get(user["cg"], 0) + counts.get(user["id"], 0)
+
+    ranked = sorted(cg_totals.items(), key=lambda item: item[1], reverse=True)
+
+    lines = ["🏆 <b>ZONE LEADERBOARD</b> 🏆\n"]
+    for rank, (cg, total) in enumerate(ranked, start=1):
+        lines.append(f"{rank}. {html.escape(cg)} — {total} impact(s)")
+    lines.append("\nKeep pushing towards the 1,000 zone goal!")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays individual breakdown to authorized users only."""
@@ -253,13 +336,30 @@ async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔒 You do not have permission to view CG breakdowns.")
         return
     
-    cg_text = (
-        "👥 <b>LBE2 BREAKDOWN</b>\n"
-        "• Micah: 15 impacts (Goal: 30)\n"
-        "• Ian: 22 impacts (Goal: 10)\n"
-    )
+    users = get_all_users()
+    counts = get_impact_counts()
 
-    await update.message.reply_text(cg_text, parse_mode="HTML")
+    if not users:
+        await update.message.reply_text("No data yet — no one has registered.")
+        return
+    
+    cg_members = {}
+    for user in users:
+        cg_members.setdefault(user["cg"], []).append(user)
+
+    lines = ["👥 <b>CG BREAKDOWN</b>\n"]
+    for cg in sorted(cg_members.keys()):
+        lines.append(f"<b>{html.escape(cg)}</b>")
+        members = sorted(cg_members[cg], key=lambda u: counts.get(u["id"], 0), reverse=True)
+
+        for user in members:
+            count = counts.get(user["id"], 0)
+            goal = user["goal"] if user["goal"] else "—"
+            lines.append(f"• {html.escape(user['name'])}: {count} impact(s) (goal: {html.escape(goal)})")
+        
+        lines.append("")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows the available commands. Leader commands only show for privileged users."""
@@ -269,7 +369,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🌱 <b>LBE Zone OTHERS Companion</b>\n"
         "<i>Your impact companion for the rest of 2026</i>\n\n"
         "/start — 🔥 Register and set your goal\n"
-        "/impact — 🙌 Log a good deed you did for someone\n"
+        "/impact — 🙌 Log an impact you made for someone\n"
         "/setgoal — 🎯 Update your goal\n"
         "/milestones — 🏁 See our progress towards 1000\n"
         "/cancel — ❌ Cancel whatever's in progress\n"
@@ -296,6 +396,7 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
+            ASK_CG: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_cg)],
             ASK_GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_goal)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
