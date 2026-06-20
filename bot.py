@@ -1,5 +1,6 @@
 import os
 import json
+import html
 import threading
 
 import gspread
@@ -34,11 +35,29 @@ def save_to_google_sheet(worksheet_name, row):
     sheet = client.open_by_key(SHEET_ID).worksheet(worksheet_name)
     sheet.append_row(row)
 
+def update_user_goal(user_id, name, new_goal):
+    """Update an existing user's goal in the Users tab, or add them if not found."""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Users")
+    rows = sheet.get_all_values()
+
+    # Users columns: Name | Telegram ID | Goal  (Goal is column 3)
+    for i, row in enumerate(rows):
+        if len(row) > 1 and row[1] == str(user_id):
+            sheet.update_cell(i + 1, 3, new_goal)  # i+1 = sheet row number, col 3 = Goal
+            return
+        
+    # not registered yet — add a new row
+    sheet.append_row([name, str(user_id), new_goal])
+    
+
 def get_user_impact_count(user_id):
     """Counts how many impacts this user has logged."""
-    credentials_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
-    credentials = Credentials.from_service_account_info(credentials_info, scopes=SCOPES)
-    client = gspread.authorize(credentials)
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
     sheet = client.open_by_key(SHEET_ID).worksheet("Impacts")
     rows = sheet.get_all_values()
 
@@ -55,9 +74,10 @@ def get_user_goal(user_id):
     for row in rows:
         if len(row) > 2 and row[1] == str(user_id):
             return row[2]
+        
     return None
 
-ASK_NAME, ASK_GOAL, ASK_IMPACT = range(3)
+ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL = range(4)
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -70,9 +90,12 @@ def run_web():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 WELCOME! 🔥\n\n"
-        "You are here to make a massive impact in the next half of 2026! "
-        "Let's get you set up. First, what is your name or nickname?"
+        "Hey there! 🤟 Ready to make an impact and reach Others? I'm here to help you out!\n\n"
+        "This next half of 2026 - it's an opportunity for you Make A Difference in someone else's life! Set a goal, and stay faithful to it!\n\n"
+        "Each week I'll help you track your progress towards it. 😊\n\n"
+        "Before we begin, how shall I address you?\n"
+        "<i>Type a nickname to get started — or /cancel if you're not ready yet.</i>",
+        parse_mode="HTML"
     )
 
     return ASK_NAME
@@ -81,9 +104,11 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text.strip()
     context.user_data["name"] = name
     await update.message.reply_text(
-        f"Love it, {name}! Let's make it count. 🚀\n\n"
-        "Now, what is your specific goal for the rest of 2026?\n"
-        "(e.g., 'I want to impact 50 people' or 'Reach out to 20 people')"
+        f"Gotcha, {html.escape(name)}! 👋\n\n"
+        "Let's set a goal for yourself for the rest of 2026 --\n\n"
+        "<b>How do you want to bring an impact to Others around you?</b> 🛟\n\n"
+        "<i>Just type it out! I'll bring it up every time you log an impact to keep you on track. (Change it anytime with /setgoal)</i>",
+        parse_mode="HTML"
     )
 
     return ASK_GOAL
@@ -111,8 +136,9 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def impact_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 Love it! What did you do to make an impact?\n\n"
-        "(e.g., 'Made a study care pack for my friends', 'Bought a birthday gift for a friend')"
+        "🔥 Love it! What impact did you make?\n\n"
+        "<i>(you can log the impact as a single text if you have more than 1!)</i>",
+        parse_mode="HTML"
     )
 
     return ASK_IMPACT
@@ -139,8 +165,7 @@ async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         await update.message.reply_text(
-            "🙌 AMAZING! That's another impact logged!\n\n"
-            "Every act counts towards our 1000 goal. Keep bringing the fire! 🔥\n\n"
+            "🙌 AMAZING! That's another impact made this week!\n\n"
             f"{stats_line}\n\n"
             "Use /milestones to see how far we've come."
         )
@@ -152,6 +177,38 @@ async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     return ConversationHandler.END
+
+async def setgoal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🎯 Let's update your goal!\n\n"
+        "What's your goal for the rest of 2026?\n"
+        "<i>Just type it out — or /cancel to keep your current one.</i>",
+        parse_mode="HTML"
+    )
+
+    return ASK_NEW_GOAL
+
+async def receive_new_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    new_goal = update.message.text.strip()
+    name = update.effective_user.first_name or "friend"
+    user_id = update.effective_user.id
+
+    try:
+        update_user_goal(user_id, name, new_goal)
+        await update.message.reply_text(
+            "✅ Goal updated!\n\n"
+            f"🎯 Your new goal: {new_goal}\n\n"
+            "Keep bringing the fire! 🔥"
+        )
+
+    except Exception as e:
+        print(f"[error] could not update goal: {e}")
+        await update.message.reply_text(
+            "Hmm, I had trouble updating that just now. Please try /setgoal again in a moment."
+        )
+ 
+    return ConversationHandler.END
+        
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels the onboarding process if they type /cancel."""
@@ -204,6 +261,33 @@ async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(cg_text, parse_mode="HTML")
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Shows the available commands. Leader commands only show for privileged users."""
+    user_id = update.effective_user.id
+ 
+    help_text = (
+        "🌱 <b>LBE Zone OTHERS Companion</b>\n"
+        "<i>Your impact companion for the rest of 2026</i>\n\n"
+        "/start — 🔥 Register and set your goal\n"
+        "/impact — 🙌 Log a good deed you did for someone\n"
+        "/setgoal — 🎯 Update your goal\n"
+        "/milestones — 🏁 See our progress towards 1000\n"
+        "/cancel — ❌ Cancel whatever's in progress\n"
+        "/help — ℹ️ Show all available commands"
+    )
+ 
+    # Only privileged users see the leader commands
+    if user_id in PRIVILEGED_USERS:
+        help_text += (
+            "\n"
+            "/leaderboard — 🏆 Top zones ranked by impacts\n"
+            "/cgbreakdown — 👥 Individual breakdown by CG"
+        )
+ 
+    help_text += "\n\n<i>Bring the fire. Make a difference. 🔥</i>"
+ 
+    await update.message.reply_text(help_text, parse_mode="HTML")
+
 def main():
     threading.Thread(target=run_web, daemon=True).start()
 
@@ -227,9 +311,19 @@ def main():
     )
     app.add_handler(impact_conversation)
 
+    setgoal_conversation = ConversationHandler(
+        entry_points=[CommandHandler("setgoal", setgoal_start)],
+        states={
+            ASK_NEW_GOAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_goal)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    app.add_handler(setgoal_conversation)
+
     app.add_handler(CommandHandler("milestones", milestones))
     app.add_handler(CommandHandler("leaderboard", leaderboard))
     app.add_handler(CommandHandler("cgbreakdown", cg_breakdown))
+    app.add_handler(CommandHandler("help", help_command))
 
     print("Bot is running...")
     app.run_polling()
