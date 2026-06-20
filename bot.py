@@ -77,6 +77,10 @@ def get_total_impacts():
     # Count data rows only (those with a numeric Telegram ID in column 2; skips the header)
     return sum(1 for row in rows if len(row) > 1 and row[1].isdigit())
 
+def impacts_word(impact_count):
+    """Returns the correct singular/plural form of "impact" for a given count."""
+    return "impact" if impact_count == 1 else "impacts"
+
 def get_impact_counts():
     """Returns {telegram_id (str): impact_count} for everyone, reading the Impacts tab once."""
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
@@ -111,6 +115,19 @@ def get_all_users():
                 "cg": cg,
             })
     return users
+
+def get_user_name(user_id):
+    """Return the nickname this user registered with in the Users tab, if any."""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Users")
+    rows = sheet.get_all_values()
+    for row in rows:
+        if len(row) > 1 and row[1] == str(user_id):
+            return row[0]
+        
+    return None
 
 def get_user_goal(user_id):
     """Look up the goal this user set during /start"""
@@ -207,23 +224,23 @@ async def impact_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ASK_IMPACT
 
 async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    good_deed = update.message.text.strip()
-    name = update.effective_user.first_name or "friend"
+    impact = update.message.text.strip()
     user_id = update.effective_user.id
+    name = get_user_name(user_id) or update.effective_user.first_name or "friend"
 
     try:
-        save_to_google_sheet("Impacts", [name, str(user_id), good_deed])
+        save_to_google_sheet("Impacts", [name, str(user_id), impact])
         count = get_user_impact_count(user_id)
         goal = get_user_goal(user_id)
 
         if goal:
             stats_line = (
-                f"📊 You've now logged {count} impact(s)!\n"
+                f"📊 You've now logged {count} {impacts_word(count)}!\n"
                 f"🎯 Your goal: {goal}"
             )
         else:
             stats_line = (
-                f"📊 You've now logged {count} impact(s)!\n"
+                f"📊 You've now logged {count} {impacts_word(count)}!\n"
                 "(Tip: run /start to set your personal goal.)"
             )
 
@@ -324,7 +341,7 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = ["🏆 <b>ZONE LEADERBOARD</b> 🏆\n"]
     for rank, (cg, total) in enumerate(ranked, start=1):
-        lines.append(f"{rank}. {html.escape(cg)} — {total} impact(s)")
+        lines.append(f"{rank}. {html.escape(cg)} — {total} {impacts_word(total)}")
     lines.append("\nKeep pushing towards the 1,000 zone goal!")
 
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
@@ -354,8 +371,7 @@ async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for user in members:
             count = counts.get(user["id"], 0)
-            goal = user["goal"] if user["goal"] else "—"
-            lines.append(f"• {html.escape(user['name'])}: {count} impact(s) (goal: {html.escape(goal)})")
+            lines.append(f"• {html.escape(user['name'])}: {count}")
         
         lines.append("")
 
@@ -380,7 +396,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id in PRIVILEGED_USERS:
         help_text += (
             "\n"
-            "/leaderboard — 🏆 Top zones ranked by impacts\n"
+            "/leaderboard — 🏆 Top CGs ranked by impacts\n"
             "/cgbreakdown — 👥 Individual breakdown by CG"
         )
  
