@@ -6,12 +6,13 @@ import threading
 import gspread
 from google.oauth2.service_account import Credentials
 from flask import Flask
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     ConversationHandler,
+    CallbackQueryHandler,
     filters,
     ContextTypes
 )
@@ -143,7 +144,7 @@ def get_user_goal(user_id):
         
     return None
 
-ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL, ASK_CG = range(5)
+ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL, ASK_CG, CONFIRM_IMPACT = range(6)
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -224,7 +225,30 @@ async def impact_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ASK_IMPACT
 
 async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    impact = update.message.text.strip()
+    context.user_data["pending_impact"] = update.message.text.strip()
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes, log it", callback_data="impact_confirm"),
+            InlineKeyboardButton("✏️ Keep editing", callback_data="impact_edit")
+        ]
+    ])
+
+    await update.message.reply_text(
+        "📝 Just to confirm — is this what you'd like to log?\n\n"
+        f"“{html.escape(context.user_data['pending_impact'])}”\n\n"
+        "Tap ✅ Yes, log it if it's correct, or ✏️ Keep editing to rewrite it.",
+        parse_mode="HTML",
+        reply_markup=keyboard,
+    )
+
+    return CONFIRM_IMPACT
+
+async def confirm_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    impact = context.user_data.get("pending_impact", "")
     user_id = update.effective_user.id
     name = get_user_name(user_id) or update.effective_user.first_name or "friend"
 
@@ -232,7 +256,7 @@ async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_to_google_sheet("Impacts", [name, str(user_id), impact])
         count = get_user_impact_count(user_id)
         goal = get_user_goal(user_id)
-
+ 
         if goal:
             stats_line = (
                 f"📊 You've now logged {count} {impacts_word(count)}!\n"
@@ -243,8 +267,8 @@ async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📊 You've now logged {count} {impacts_word(count)}!\n"
                 "(Tip: run /start to set your personal goal.)"
             )
-
-        await update.message.reply_text(
+ 
+        await query.edit_message_text(
             "🙌 AMAZING! That's another impact made this week!\n\n"
             f"{stats_line}\n\n"
             "Use /milestones to see how far we've come."
@@ -252,11 +276,24 @@ async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print(f"[error] could not save to Impacts tab: {e}")
-        await update.message.reply_text(
+        await query.edit_message_text(
             "Hmm, I had trouble saving that just now. Please try /impact again in a moment."
         )
 
     return ConversationHandler.END
+
+async def edit_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    previous = context.user_data.get("pending_impact", "")
+    await query.edit_message_text(
+        "✏️ No worries, go ahead and edit your impact. Just send the updated text when you're done.\n\n"
+        f"Previous: “{html.escape(previous)}”",
+        parse_mode="HTML"
+    )
+
+    return ASK_IMPACT
 
 async def setgoal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
