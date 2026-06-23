@@ -32,8 +32,7 @@ PRIVILEGED_USERS = {
 }
 
 INITIATIVES_COL = {
-    "date": 2, "title": 3, "description": 4, "purpose": 5,
-    "impact": 6, "time": 7, "venue": 8, "people": 9,
+    "date": 2, "title": 3, "purpose": 4, "impact": 5, "time": 6, "venue": 7, "people": 8,
 }
 
 def save_to_google_sheet(worksheet_name, row):
@@ -166,12 +165,11 @@ def get_all_initiatives():
                 "id": row[0] if len(row) > 0 else "",
                 "date": row[1] if len(row) > 1 else "",
                 "title": row[2] if len(row) > 2 else "",
-                "description": row[3] if len(row) > 3 else "",
-                "purpose": row[4] if len(row) > 4 else "",
-                "impact": row[5] if len(row) > 5 else "",
-                "time": row[6] if len(row) > 6 else "",
-                "venue": row[7] if len(row) > 7 else "",
-                "people": row[8] if len(row) > 8 else "",
+                "purpose": row[3] if len(row) > 3 else "",
+                "impact": row[4] if len(row) > 4 else "",
+                "time": row[5] if len(row) > 5 else "",
+                "venue": row[6] if len(row) > 6 else "",
+                "people": row[7] if len(row) > 7 else "",
             })
 
     return items
@@ -194,7 +192,6 @@ def add_new_initiative(data):
         str(next_id),
         data.get("date", ""),
         data.get("title", ""),
-        data.get("description", ""),
         data.get("purpose", ""),
         data.get("impact", ""),
         data.get("time", ""),
@@ -211,8 +208,8 @@ def update_initiative_field(row_num, field_name, new_value):
     sheet.update_cell(row_num, INITIATIVES_COL[field_name], new_value)
 
 ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL, ASK_CG, CONFIRM_IMPACT = range(6)
-INIT_DATE, INIT_TITLE, INIT_DESC, INIT_PURPOSE, INIT_IMPACT, INIT_TIME, INIT_VENUE, INIT_PEOPLE = range(6, 14)
-EDIT_CHOOSE_ROW, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE = range(14, 17)
+INIT_DATE_TITLE, INIT_PURPOSE_IMPACT, INIT_TIME_VENUE, INIT_PEOPLE = range(6, 10)
+EDIT_CHOOSE_ROW, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE = range(10, 13)
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -403,6 +400,17 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
+def split_two(text):
+    """Split a message into two fields. Prefers a | separator, falls back to a newline.
+    Returns a list of 1 or 2 stripped parts."""
+    if "|" in text:
+        parts = text.split("|", 1)
+    elif "\n" in text:
+        parts = text.split("\n", 1)
+    else:
+        parts = [text]
+    return [p.strip() for p in parts]
+ 
 def format_initiatives(items):
     """Build a readable display of all initiatives for the admin."""
     lines = ["📋 <b>WEEKLY INITIATIVES</b>\n"]
@@ -414,7 +422,6 @@ def format_initiatives(items):
             f"📍 Venue: {html.escape(item['venue'])}\n"
             f"🎯 Purpose: {html.escape(item['purpose'])}\n"
             f"💥 Impact: {html.escape(item['impact'])}\n"
-            f"📝 Description: {html.escape(item['description'])}\n"
             f"👥 People going: {html.escape(item['people'])}"
         )
     return "\n\n".join(lines)
@@ -437,14 +444,14 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(format_initiatives(items), parse_mode="HTML")
         return ConversationHandler.END
  
-    # Empty list -> begin adding the first outing
     context.user_data["new_init"] = {}
     await update.message.reply_text(
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
-        "📅 What's the <b>date</b> of the outing?",
+        "Send the <b>date</b> and <b>title</b>, separated by a <b>|</b>\n\n"
+        "<i>Example:\n29 Jun 2026 | Elderly Visitation</i>",
         parse_mode="HTML"
     )
-    return INIT_DATE
+    return INIT_DATE_TITLE
  
 async def edit_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/editlist — list outings and ask which to edit, or 0 to add a new one."""
@@ -470,41 +477,59 @@ async def edit_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
     return EDIT_CHOOSE_ROW
  
-# --- shared "add an outing" flow -------------------------------------------
+# --- shared "add an outing" flow (4 prompts) -------------------------------
  
-async def init_collect_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_init"]["date"] = update.message.text.strip()
-    await update.message.reply_text("🏷️ What's the <b>title</b> of the outing?", parse_mode="HTML")
-    return INIT_TITLE
+async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    parts = split_two(update.message.text)
+    if len(parts) < 2 or not parts[1]:
+        await update.message.reply_text(
+            "❌ I need both the date and the title, separated by a |\n\n"
+            "<i>Example: 29 Jun 2026 | Elderly Visitation</i>",
+            parse_mode="HTML"
+        )
+        return INIT_DATE_TITLE
  
-async def init_collect_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_init"]["title"] = update.message.text.strip()
-    await update.message.reply_text("📝 Give a short <b>description</b>:", parse_mode="HTML")
-    return INIT_DESC
+    context.user_data["new_init"]["date"] = parts[0]
+    context.user_data["new_init"]["title"] = parts[1]
+    await update.message.reply_text(
+        "🎯 Now the <b>purpose</b> and <b>impact</b>, separated by a <b>|</b>\n\n"
+        "<i>Example:\nCare for the elderly | Bring encouragement &amp; God's love</i>",
+        parse_mode="HTML"
+    )
+    return INIT_PURPOSE_IMPACT
  
-async def init_collect_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_init"]["description"] = update.message.text.strip()
-    await update.message.reply_text("🎯 What's the <b>purpose</b> of this outing?", parse_mode="HTML")
-    return INIT_PURPOSE
+async def init_collect_purpose_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    parts = split_two(update.message.text)
+    if len(parts) < 2 or not parts[1]:
+        await update.message.reply_text(
+            "❌ I need both the purpose and the impact, separated by a |\n\n"
+            "<i>Example: Care for the elderly | Bring encouragement</i>",
+            parse_mode="HTML"
+        )
+        return INIT_PURPOSE_IMPACT
  
-async def init_collect_purpose(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_init"]["purpose"] = update.message.text.strip()
-    await update.message.reply_text("💥 What <b>impact</b> do you hope it makes?", parse_mode="HTML")
-    return INIT_IMPACT
+    context.user_data["new_init"]["purpose"] = parts[0]
+    context.user_data["new_init"]["impact"] = parts[1]
+    await update.message.reply_text(
+        "⏰ Now the <b>time</b> and <b>venue</b>, separated by a <b>|</b>\n\n"
+        "<i>Example:\n2:00 PM | Bright Hill Home</i>",
+        parse_mode="HTML"
+    )
+    return INIT_TIME_VENUE
  
-async def init_collect_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_init"]["impact"] = update.message.text.strip()
-    await update.message.reply_text("⏰ What <b>time</b> is the outing?", parse_mode="HTML")
-    return INIT_TIME
+async def init_collect_time_venue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    parts = split_two(update.message.text)
+    if len(parts) < 2 or not parts[1]:
+        await update.message.reply_text(
+            "❌ I need both the time and the venue, separated by a |\n\n"
+            "<i>Example: 2:00 PM | Bright Hill Home</i>",
+            parse_mode="HTML"
+        )
+        return INIT_TIME_VENUE
  
-async def init_collect_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_init"]["time"] = update.message.text.strip()
-    await update.message.reply_text("📍 What's the <b>venue</b>?", parse_mode="HTML")
-    return INIT_VENUE
- 
-async def init_collect_venue(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_init"]["venue"] = update.message.text.strip()
-    await update.message.reply_text("👥 Who's <b>going</b> for the outing?", parse_mode="HTML")
+    context.user_data["new_init"]["time"] = parts[0]
+    context.user_data["new_init"]["venue"] = parts[1]
+    await update.message.reply_text("👥 Lastly, who's <b>going</b>? (names or a number)", parse_mode="HTML")
     return INIT_PEOPLE
  
 async def init_collect_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -517,7 +542,7 @@ async def init_collect_people(update: Update, context: ContextTypes.DEFAULT_TYPE
             "✅ Outing saved!\n\n"
             f"🏷️ {html.escape(data.get('title', ''))}\n"
             f"📅 {html.escape(data.get('date', ''))}\n\n"
-            "Use /initiativelist to see the full list.",
+            "Use /initiativelist to see the full list, or /editlist to add another.",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -540,13 +565,14 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = int(text)
  
     if choice == 0:
-        # add a new outing — reuse the shared add flow
         context.user_data["new_init"] = {}
         await update.message.reply_text(
-            "➕ Adding a new outing.\n\n📅 What's the <b>date</b> of the outing?",
+            "➕ Adding a new outing.\n\n"
+            "Send the <b>date</b> and <b>title</b>, separated by a <b>|</b>\n\n"
+            "<i>Example:\n29 Jun 2026 | Elderly Visitation</i>",
             parse_mode="HTML"
         )
-        return INIT_DATE
+        return INIT_DATE_TITLE
  
     item = items[choice - 1]
     context.user_data["edit_row_num"] = item["row_num"]
@@ -555,13 +581,12 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Editing <b>{html.escape(item['title'])}</b>. Which field would you like to change?\n\n"
         "1. 📅 Date\n"
         "2. 🏷️ Title\n"
-        "3. 📝 Description\n"
-        "4. 🎯 Purpose\n"
-        "5. 💥 Impact\n"
-        "6. ⏰ Time\n"
-        "7. 📍 Venue\n"
-        "8. 👥 People going\n\n"
-        "<i>Reply with 1–8:</i>",
+        "3. 🎯 Purpose\n"
+        "4. 💥 Impact\n"
+        "5. ⏰ Time\n"
+        "6. 📍 Venue\n"
+        "7. 👥 People going\n\n"
+        "<i>Reply with 1–7:</i>",
         parse_mode="HTML"
     )
     return EDIT_CHOOSE_FIELD
@@ -569,11 +594,11 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def edit_choose_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = update.message.text.strip()
     field_map = {
-        "1": "date", "2": "title", "3": "description", "4": "purpose",
-        "5": "impact", "6": "time", "7": "venue", "8": "people",
+        "1": "date", "2": "title", "3": "purpose", "4": "impact",
+        "5": "time", "6": "venue", "7": "people",
     }
     if choice not in field_map:
-        await update.message.reply_text("❌ Please reply with a number from 1 to 8.")
+        await update.message.reply_text("❌ Please reply with a number from 1 to 7.")
         return EDIT_CHOOSE_FIELD
  
     context.user_data["edit_field"] = field_map[choice]
@@ -587,13 +612,10 @@ async def edit_new_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
  
     try:
         update_initiative_field(row_num, field, new_value)
-        await update.message.reply_text(
-            "🎯 Updated! Use /initiativelist to see the changes."
-        )
+        await update.message.reply_text("🎯 Updated! Use /initiativelist to see the changes.")
     except Exception as e:
         print(f"[error] could not update initiative: {e}")
         await update.message.reply_text("❌ I couldn't update that. Please try /editlist again in a moment.")
- 
     return ConversationHandler.END
 
 async def milestones(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -747,19 +769,15 @@ def main():
             CommandHandler("editlist", edit_list_start),
         ],
         states={
-            # add-an-outing flow
-            INIT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_date)],
-            INIT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_title)],
-            INIT_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_desc)],
-            INIT_PURPOSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_purpose)],
-            INIT_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_impact)],
-            INIT_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_time)],
-            INIT_VENUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_venue)],
-            INIT_PEOPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_people)],
+            # add-an-outing flow (4 prompts)
+            INIT_DATE_TITLE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_date_title)],
+            INIT_PURPOSE_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_purpose_impact)],
+            INIT_TIME_VENUE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_time_venue)],
+            INIT_PEOPLE:         [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_people)],
             # edit-an-outing flow
-            EDIT_CHOOSE_ROW: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choose_row)],
+            EDIT_CHOOSE_ROW:   [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choose_row)],
             EDIT_CHOOSE_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choose_field)],
-            EDIT_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_new_value)],
+            EDIT_NEW_VALUE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_new_value)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
