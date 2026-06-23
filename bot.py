@@ -494,7 +494,7 @@ async def init_collect_purpose(update: Update, context: ContextTypes.DEFAULT_TYP
  
 async def init_collect_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_init"]["impact"] = update.message.text.strip()
-    await update.message.reply_text("⏰ What <b>time</b> is it?", parse_mode="HTML")
+    await update.message.reply_text("⏰ What <b>time</b> is the outing?", parse_mode="HTML")
     return INIT_TIME
  
 async def init_collect_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -504,7 +504,7 @@ async def init_collect_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
  
 async def init_collect_venue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_init"]["venue"] = update.message.text.strip()
-    await update.message.reply_text("👥 Who's <b>going</b>? (names or a number)", parse_mode="HTML")
+    await update.message.reply_text("👥 Who's <b>going</b> for the outing?", parse_mode="HTML")
     return INIT_PEOPLE
  
 async def init_collect_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
