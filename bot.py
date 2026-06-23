@@ -330,7 +330,7 @@ async def receive_new_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels the onboarding process if they type /cancel."""
     await update.message.reply_text(
-        "Onboarding cancelled. Type /start whenever you're ready to lock in!"
+        "Action cancelled."
     )
 
     return ConversationHandler.END
@@ -360,7 +360,7 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays overall zone rankings to authorized users only."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 This command is restricted to Zone Leaders and Admins.")
+        await update.message.reply_text("🔒 Oops! This command is for Admins.")
         return
     
     users = get_all_users()
@@ -387,7 +387,7 @@ async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays individual breakdown to authorized users only."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 You do not have permission to view CG breakdowns.")
+        await update.message.reply_text("🔒 Oops! This command is for Admins.")
         return
     
     users = get_all_users()
