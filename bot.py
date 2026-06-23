@@ -356,7 +356,7 @@ async def edit_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     previous = context.user_data.get("pending_impact", "")
     await query.edit_message_text(
-        "✏️ No worries, go ahead and edit your impact. Just send the updated text when you're done.\n\n"
+        "✏️ No worries, copy and paste your previous response below, make any edits you'd like, and send it back when you're done.\n\n"
         f"Previous: “{html.escape(previous)}”",
         parse_mode="HTML"
     )
