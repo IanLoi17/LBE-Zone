@@ -283,7 +283,7 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def impact_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔥 Love it! What impact did you make?\n\n"
-        "<i>(you can log the impact as a single text if you have more than 1!)</i>",
+        "<i>(If you made multiple impacts, you can log each one separately using the same command.)</i>",
         parse_mode="HTML"
     )
 
