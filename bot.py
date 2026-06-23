@@ -447,8 +447,8 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_init"] = {}
     await update.message.reply_text(
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
-        "Send the <b>date</b> and <b>title</b>, separated by a <b>|</b>\n\n"
-        "<i>Example:\n29 Jun 2026 | Elderly Visitation</i>",
+        "What is the <b>date</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
+        "<i>Example:\n29 June | Bowling &amp; Dinner with Boon</i>",
         parse_mode="HTML"
     )
     return INIT_DATE_TITLE
@@ -483,8 +483,8 @@ async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_
     parts = split_two(update.message.text)
     if len(parts) < 2 or not parts[1]:
         await update.message.reply_text(
-            "❌ I need both the date and the title, separated by a |\n\n"
-            "<i>Example: 29 Jun 2026 | Elderly Visitation</i>",
+            "❌ Please enter both the date and title of the outing, separated by a |\n\n"
+            "<i>Example: 29 June | Bowling &amp; Dinner with Boon</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TITLE
@@ -492,8 +492,8 @@ async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["new_init"]["date"] = parts[0]
     context.user_data["new_init"]["title"] = parts[1]
     await update.message.reply_text(
-        "🎯 Now the <b>purpose</b> and <b>impact</b>, separated by a <b>|</b>\n\n"
-        "<i>Example:\nCare for the elderly | Bring encouragement &amp; God's love</i>",
+        "🎯 What is the <b>purpose</b> and <b>impact</b> of this outing? Please follow the example below.\n\n"
+        "<i>Example:\nBuilding relationship with one another | Go deeper in our convos with him</i>",
         parse_mode="HTML"
     )
     return INIT_PURPOSE_IMPACT
@@ -502,8 +502,8 @@ async def init_collect_purpose_impact(update: Update, context: ContextTypes.DEFA
     parts = split_two(update.message.text)
     if len(parts) < 2 or not parts[1]:
         await update.message.reply_text(
-            "❌ I need both the purpose and the impact, separated by a |\n\n"
-            "<i>Example: Care for the elderly | Bring encouragement</i>",
+            "❌ Please enter both the purpose and impact of the outing, separated by a |\n\n"
+            "<i>Example: Building relationship with one another | Go deeper in our convos with him</i>",
             parse_mode="HTML"
         )
         return INIT_PURPOSE_IMPACT
@@ -511,8 +511,8 @@ async def init_collect_purpose_impact(update: Update, context: ContextTypes.DEFA
     context.user_data["new_init"]["purpose"] = parts[0]
     context.user_data["new_init"]["impact"] = parts[1]
     await update.message.reply_text(
-        "⏰ Now the <b>time</b> and <b>venue</b>, separated by a <b>|</b>\n\n"
-        "<i>Example:\n2:00 PM | Bright Hill Home</i>",
+        "⏰ What is the <b>time</b> and <b>venue</b> of the outing? Please follow the example below.\n\n"
+        "<i>Example:\n2 PM | Mount Faber Super Bowl</i>",
         parse_mode="HTML"
     )
     return INIT_TIME_VENUE
@@ -521,15 +521,15 @@ async def init_collect_time_venue(update: Update, context: ContextTypes.DEFAULT_
     parts = split_two(update.message.text)
     if len(parts) < 2 or not parts[1]:
         await update.message.reply_text(
-            "❌ I need both the time and the venue, separated by a |\n\n"
-            "<i>Example: 2:00 PM | Bright Hill Home</i>",
+            "❌ Please enter both the time and the venue, separated by a |\n\n"
+            "<i>Example: 2 PM | Mount Faber Super Bowl</i>",
             parse_mode="HTML"
         )
         return INIT_TIME_VENUE
  
     context.user_data["new_init"]["time"] = parts[0]
     context.user_data["new_init"]["venue"] = parts[1]
-    await update.message.reply_text("👥 Lastly, who's <b>going</b>? (names or a number)", parse_mode="HTML")
+    await update.message.reply_text("👥 Lastly, who's <b>going</b> for the outing?", parse_mode="HTML")
     return INIT_PEOPLE
  
 async def init_collect_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -568,8 +568,8 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["new_init"] = {}
         await update.message.reply_text(
             "➕ Adding a new outing.\n\n"
-            "Send the <b>date</b> and <b>title</b>, separated by a <b>|</b>\n\n"
-            "<i>Example:\n29 Jun 2026 | Elderly Visitation</i>",
+            "What is the <b>date</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
+            "<i>Example:\n29 June | Bowling &amp; Dinner with Boon</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TITLE
