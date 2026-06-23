@@ -460,6 +460,10 @@ def main():
         entry_points=[CommandHandler("impact", impact_start)],
         states={
             ASK_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_impact)],
+            CONFIRM_IMPACT: [
+                CallbackQueryHandler(confirm_impact, pattern="^impact_confirm$"),
+                CallbackQueryHandler(edit_impact, pattern="^impact_edit$"),
+            ]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
