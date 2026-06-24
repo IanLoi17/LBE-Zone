@@ -4,6 +4,8 @@ import html
 import re
 import datetime
 import threading
+import asyncio
+from zoneinfo import ZoneInfo
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -36,6 +38,8 @@ PRIVILEGED_USERS = {
     235735470,
     25526066
 }
+
+SGT = ZoneInfo("Asia/Singapore")
 
 INITIATIVES_COL = {
     "date": 2, "title": 3, "purpose": 4, "impact": 5, "time": 6, "venue": 7, "people": 8,
@@ -278,10 +282,29 @@ def remove_initiative_row(row_num):
             if row[0] != str(new_id):
                 sheet.update_cell(i, 1, str(new_id))
 
+def get_verseotw():
+    """Read the current Verse of the Week from cell A1 of the Verse Of The Week tab."""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Verse Of The Week")
+    value = sheet.acell("A1").value
+
+    return value.strip() if value else ""
+
+def set_verse(verse):
+    """Set a new Verse in cell A1 of the Verse Of The Week tab."""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Verse Of The Week")
+    sheet.update_acell("A1", verse)
+
 ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL, ASK_CG, CONFIRM_IMPACT = range(6)
 INIT_DATE_TITLE, INIT_PURPOSE_IMPACT, INIT_TIME_VENUE, INIT_PEOPLE = range(6, 10)
 EDIT_CHOOSE_ROW, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE = range(10, 13)
 REMOVE_INITIATIVE = 13
+ASK_VERSE_OTW = 14
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -743,7 +766,86 @@ async def remove_initiative(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"[error] could not remove initiative: {e}")
         await update.message.reply_text("❌ I couldn't remove that. Please try /removeinitiative again in a moment.")
+    
     return ConversationHandler.END
+
+async def verseotw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/verseotw for admin to set for the upcoming week"""
+    user_id = update.effective_user.id
+    if user_id not in PRIVILEGED_USERS:
+        await update.message.reply_text("🔒 Oops! This command is for Admins.")
+        return ConversationHandler.END
+    
+    await update.message.reply_text(
+        "📖 Send me the <b>Verse of the Week</b>.\n\n"
+        "<i>For example:\n1 John 4:7 (NIV): — Dear friends, let us love one another, for love comes from God. Everyone who loves has been born of God and knows God.</i>\n\n"
+        "Or /cancel to keep the current one.",
+        parse_mode="HTML"
+    )
+
+    return ASK_VERSE_OTW
+
+async def receive_verseotw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save the Verse of the week to the google sheets."""
+    verseotw = update.message.text.strip()
+    try:
+        set_verse(verseotw)
+        await update.message.reply_text(
+            "✅ Verse of the Week saved!\n\n"
+            f"📖 This week's verse: {html.escape(verseotw)}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"[error] could not save verse: {e}")
+        await update.message.reply_text("❌ I couldn't save that. Please try /verseotw again in a moment.")
+
+    return ConversationHandler.END
+
+async def post_verseotw(context: ContextTypes.DEFAULT_TYPE):
+    """JobQueue callback - runs Monday morning and DMs the verse to every registered user."""
+    try:
+        verseotw = get_verseotw()
+    except Exception as e:
+        print(f"[verseotw] could not read verse of the week: {e}")
+        return
+    
+    if not verseotw:
+        print("[verseotw] no verse of the week set.")
+        return
+    
+    try:
+        users = get_all_users()
+    except Exception as e:
+        print(f"[verseotw] could not read users: {e}")
+        return
+    
+    message = (
+        "📖 <b>VERSE OF THE WEEK</b> 🌱\n\n"
+        f"{html.escape(verseotw)}\n\n"
+        "<i>Stay encouraged, and keep making an impact this week! 🛟</i>"
+    )
+
+    sent, failed = 0, 0
+    seen_ids = set()
+    for user in users:
+        user_id = user["id"]
+
+        if user_id in seen_ids:
+            continue
+
+        seen_ids.add(user_id)
+        try:
+            await context.bot.send_message(chat_id=int(user_id), text=message, parse_mode="HTML")
+            sent += 1
+        except Exception as e:
+            # Most common cause: the user blocked the bot or never started a chat with it.
+            failed += 1
+            print(f"[verse] could not DM {user_id}: {e}")
+
+        await asyncio.sleep(0.05)
+
+    print(f"[verse] weekly verse sent to {sent} user(s); {failed} failed.")
+        
 
 async def milestones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows the live total progress towards 1000 impacts"""
@@ -846,6 +948,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/initiativelist — 📋 View weekly outings (or add the first if empty)\n"
             "/editlist — ✏️ Add or edit an outing\n"
             "/removeinitiative — 🗑️ Remove an outing\n"
+            "/verseotw — 📖 Set the Verse of the Week\n"
             "/leaderboard — 🏆 Top CGs ranked by impacts\n"
             "/cgbreakdown — 👥 Individual breakdown by CG"
         )
@@ -912,10 +1015,27 @@ def main():
     )
     app.add_handler(initiative_conversation)
 
+    verse_conversation = ConversationHandler(
+        entry_points=[CommandHandler("verseotw", verseotw_start)],
+        states={
+            ASK_VERSE_OTW: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_verseotw)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    app.add_handler(verse_conversation)
+
     app.add_handler(CommandHandler("milestones", milestones))
     app.add_handler(CommandHandler("leaderboard", leaderboard))
     app.add_handler(CommandHandler("cgbreakdown", cg_breakdown))
     app.add_handler(CommandHandler("help", help_command))
+
+    app.job_queue.run_daily(
+        post_verseotw,
+        time=datetime.time(hour=12, minute=0, tzinfo=SGT),
+        days=(1,),
+        name="verse_of_the_week"
+    )
 
     print("Bot is running...")
     app.run_polling()
