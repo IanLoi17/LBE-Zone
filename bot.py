@@ -172,6 +172,20 @@ def parse_outing_date(date_str):
 
     return datetime.date.max
 
+def parse_outing_time(time_str):
+    """Turn a free-text time like '3.30pm' or '2 PM' into a real time so outings on the
+    same day can be ordered. Unparseable text sorts last within its day."""
+    s = " ".join((time_str or "").split()).upper().replace(".", ":")
+    if not s:
+        return datetime.time.max
+    attempts = ["%I:%M%p", "%I%p", "%I:%M %p", "%I %p", "%H:%M", "%H%M"]
+    for fmt in attempts:
+        try:
+            return datetime.datetime.strptime(s, fmt).time()
+        except ValueError:
+            continue
+    return datetime.time.max
+
 def get_all_initiatives():
     """Return a list of initiative dicts from the Initiatives tab (skips the header row).
     Each dict carries row_num = the real sheet row number, for editing cells in place."""
@@ -196,7 +210,7 @@ def get_all_initiatives():
                 "people": row[7] if len(row) > 7 else "",
             })
 
-    items.sort(key=lambda it: parse_outing_date(it["date"]))
+    items.sort(key=lambda it: (parse_outing_date(it["date"]), parse_outing_time(it["time"])))
     return items
 
 def add_new_initiative(data):
@@ -492,7 +506,7 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
         "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
-        "<i>Example:\n29 June | Bowling &amp; Dinner with Boon</i>",
+        "<i>Example:\n29 June | XX with XX</i>",
         parse_mode="HTML"
     )
     return INIT_DATE_TITLE
@@ -556,7 +570,7 @@ async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_
     if len(parts) < 2 or not parts[1]:
         await update.message.reply_text(
             "❌ Please enter both the date + day and title of the outing, separated by a |\n\n"
-            "<i>Example: 29 June | Bowling &amp; Dinner with Boon</i>",
+            "<i>Example: 29 June | XX with XX</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TITLE
@@ -565,7 +579,7 @@ async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["new_init"]["title"] = parts[1]
     await update.message.reply_text(
         "🎯 What is the <b>purpose</b> and <b>impact</b> of this outing? Please follow the example below.\n\n"
-        "<i>Example:\nBuilding relationship with one another | Go deeper in our convos with him</i>",
+        "<i>Example:\nContinue building r/s with XX | Inspire XX to...</i>",
         parse_mode="HTML"
     )
     return INIT_PURPOSE_IMPACT
@@ -575,7 +589,7 @@ async def init_collect_purpose_impact(update: Update, context: ContextTypes.DEFA
     if len(parts) < 2 or not parts[1]:
         await update.message.reply_text(
             "❌ Please enter both the purpose and impact of the outing, separated by a |\n\n"
-            "<i>Example: Building relationship with one another | Go deeper in our convos with him</i>",
+            "<i>Example: Continue building r/s with XX | Inspire XX to...</i>",
             parse_mode="HTML"
         )
         return INIT_PURPOSE_IMPACT
@@ -584,7 +598,7 @@ async def init_collect_purpose_impact(update: Update, context: ContextTypes.DEFA
     context.user_data["new_init"]["impact"] = parts[1]
     await update.message.reply_text(
         "⏰ What is the <b>time</b> and <b>venue</b> of the outing? Please follow the example below.\n\n"
-        "<i>Example:\n2 PM | Mount Faber Super Bowl</i>",
+        "<i>Example:\n2 PM | Location</i>",
         parse_mode="HTML"
     )
     return INIT_TIME_VENUE
@@ -594,7 +608,7 @@ async def init_collect_time_venue(update: Update, context: ContextTypes.DEFAULT_
     if len(parts) < 2 or not parts[1]:
         await update.message.reply_text(
             "❌ Please enter both the time and the venue, separated by a |\n\n"
-            "<i>Example: 2 PM | Mount Faber Super Bowl</i>",
+            "<i>Example: 2 PM | Location</i>",
             parse_mode="HTML"
         )
         return INIT_TIME_VENUE
@@ -641,7 +655,7 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "➕ Adding a new outing.\n\n"
             "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
-            "<i>Example:\n29 June | Bowling &amp; Dinner with Boon</i>",
+            "<i>Example:\n29 June | XX with XX</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TITLE
