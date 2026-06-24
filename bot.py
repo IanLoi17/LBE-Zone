@@ -336,7 +336,8 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "✅ Saved. 🎯 GOAL LOCKED IN!\n\n"
             "Go out there and change lives!\n\n"
-            "Use /impact to log an impact <i>(anytime, anywhere)</i> and /milestones to see what we're running towards as a Zone!",
+            "Use /impact to log an impact <i>(anytime, anywhere)</i> and /milestones to see what we're running towards as a Zone!\n\n"
+            "Pro-Tip: Use /help to see all other available commands!",
             parse_mode="HTML"
         )
 
@@ -481,7 +482,12 @@ def split_two(text):
  
 def format_initiatives(items):
     """Build a readable display of all initiatives for the admin."""
-    lines = ["📋 <b>WEEKLY INITIATIVES</b>\n"]
+    lines = [
+        "📋 <b>WEEKLY INITIATIVES</b>\n",
+        "<b>Leading Questions:</b>\n"
+        "💭 Who am I putting before myself this week?\n"
+        "💭 How can I make time for this person/these people?\n"
+        ]
     for idx, item in enumerate(items, start=1):
         lines.append(
             f"<b>{idx}. {html.escape(item['title'])}</b>\n"
