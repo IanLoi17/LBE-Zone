@@ -491,7 +491,7 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_init"] = {}
     await update.message.reply_text(
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
-        "What is the <b>date</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
+        "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
         "<i>Example:\n29 June | Bowling &amp; Dinner with Boon</i>",
         parse_mode="HTML"
     )
@@ -555,7 +555,7 @@ async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_
     parts = split_two(update.message.text)
     if len(parts) < 2 or not parts[1]:
         await update.message.reply_text(
-            "❌ Please enter both the date and title of the outing, separated by a |\n\n"
+            "❌ Please enter both the date + day and title of the outing, separated by a |\n\n"
             "<i>Example: 29 June | Bowling &amp; Dinner with Boon</i>",
             parse_mode="HTML"
         )
@@ -614,7 +614,7 @@ async def init_collect_people(update: Update, context: ContextTypes.DEFAULT_TYPE
             "✅ Outing saved!\n\n"
             f"🏷️ {html.escape(data.get('title', ''))}\n"
             f"📅 {html.escape(data.get('date', ''))}\n\n"
-            "Use /initiativelist to see the full list, or /editlist to add another.",
+            "Use /initiativelist to see the full list, /editlist to edit or add outings, or /removeinitiative to remove an outing.",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -640,7 +640,7 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["new_init"] = {}
         await update.message.reply_text(
             "➕ Adding a new outing.\n\n"
-            "What is the <b>date</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
+            "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
             "<i>Example:\n29 June | Bowling &amp; Dinner with Boon</i>",
             parse_mode="HTML"
         )
