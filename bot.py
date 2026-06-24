@@ -1,6 +1,7 @@
 import os
 import json
 import html
+import datetime
 import threading
 
 import gspread
@@ -148,6 +149,29 @@ def get_user_goal(user_id):
         
     return None
 
+def parse_outing_date(date_str):
+    """Turn a free-text date like '26 June' into a real date so the list can be sorted."""
+    s = " ".join((date_str or "").split())
+    if not s:
+        return datetime.date.max
+    
+    year = datetime.date.today().year
+    attempts = [
+        (s, "%d %B %Y"), (s, "%d %b %Y"),
+        (s, "%B %d %Y"), (s, "%b %d %Y"),
+        (s, "%Y-%m-%d"), (s, "%d/%m/%Y"), (s, "%d-%m-%Y"),
+        (f"{s} {year}", "%d %B %Y"), (f"{s} {year}", "%d %b %Y"),
+        (f"{s} {year}", "%B %d %Y"), (f"{s} {year}", "%b %d %Y"),
+        (f"{s}/{year}", "%d/%m/%Y"),
+    ]
+    for text, fmt in attempts:
+        try:
+            return datetime.datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+
+    return datetime.date.max
+
 def get_all_initiatives():
     """Return a list of initiative dicts from the Initiatives tab (skips the header row).
     Each dict carries row_num = the real sheet row number, for editing cells in place."""
@@ -172,6 +196,7 @@ def get_all_initiatives():
                 "people": row[7] if len(row) > 7 else "",
             })
 
+    items.sort(key=lambda it: parse_outing_date(it["date"]))
     return items
 
 def add_new_initiative(data):
@@ -207,9 +232,28 @@ def update_initiative_field(row_num, field_name, new_value):
     sheet = client.open_by_key(SHEET_ID).worksheet("Initiatives")
     sheet.update_cell(row_num, INITIATIVES_COL[field_name], new_value)
 
+def remove_initiative_row(row_num):
+    """NEW HELPER: delete one outing row, then renumber the ID column so it stays 1, 2, 3..."""
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SHEET_ID).worksheet("Initiatives")
+ 
+    sheet.delete_rows(row_num)
+ 
+    # Renumber the ID column (column A) for the remaining outings, top to bottom.
+    rows = sheet.get_all_values()
+    new_id = 0
+    for i, row in enumerate(rows[1:], start=2):  # skip the header row
+        if len(row) > 2 and row[2].strip():      # a non-empty title marks a real outing
+            new_id += 1
+            if row[0] != str(new_id):
+                sheet.update_cell(i, 1, str(new_id))
+
 ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL, ASK_CG, CONFIRM_IMPACT = range(6)
 INIT_DATE_TITLE, INIT_PURPOSE_IMPACT, INIT_TIME_VENUE, INIT_PEOPLE = range(6, 10)
 EDIT_CHOOSE_ROW, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE = range(10, 13)
+REMOVE_INITIATIVE = 13
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -476,6 +520,34 @@ async def edit_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
  
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
     return EDIT_CHOOSE_ROW
+
+async def remove_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """NEW: /removeinitiative — list outings and ask which number to delete (admins only)."""
+    user_id = update.effective_user.id
+    if user_id not in PRIVILEGED_USERS:
+        await update.message.reply_text("🔒 Oops! This command is for Admins.")
+        return ConversationHandler.END
+ 
+    try:
+        items = get_all_initiatives()
+    except Exception as e:
+        print(f"[error] could not read Initiatives tab: {e}")
+        await update.message.reply_text("❌ I couldn't read the initiatives sheet. Please try again in a moment.")
+        return ConversationHandler.END
+ 
+    if not items:
+        await update.message.reply_text("📋 There are no outings to remove.")
+        return ConversationHandler.END
+ 
+    context.user_data["remove_items"] = items
+ 
+    lines = ["🗑️ <b>REMOVE AN OUTING</b>\n"]
+    for idx, item in enumerate(items, start=1):
+        lines.append(f"{idx}. {html.escape(item['title'])} ({html.escape(item['date'])})")
+    lines.append("\n<i>Reply with the number to remove. /cancel to exit.</i>")
+ 
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    return REMOVE_INITIATIVE
  
 # --- shared "add an outing" flow (4 prompts) -------------------------------
  
@@ -618,6 +690,27 @@ async def edit_new_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ I couldn't update that. Please try /editlist again in a moment.")
     return ConversationHandler.END
 
+async def remove_initiative(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    items = context.user_data.get("remove_items", [])
+ 
+    if not text.isdigit() or not (1 <= int(text) <= len(items)):
+        await update.message.reply_text(f"❌ Please reply with a number from 1 to {len(items)}.")
+        return REMOVE_INITIATIVE
+ 
+    item = items[int(text) - 1]
+    try:
+        remove_initiative_row(item["row_num"])
+        await update.message.reply_text(
+            f"🗑️ Removed <b>{html.escape(item['title'])}</b> ({html.escape(item['date'])}).\n\n"
+            "The remaining outings have been renumbered. Use /initiativelist to see the updated list.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"[error] could not remove initiative: {e}")
+        await update.message.reply_text("❌ I couldn't remove that. Please try /removeinitiative again in a moment.")
+    return ConversationHandler.END
+
 async def milestones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows the live total progress towards 1000 impacts"""
     total = get_total_impacts()
@@ -718,6 +811,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "\n"
             "/initiativelist — 📋 View weekly outings (or add the first if empty)\n"
             "/editlist — ✏️ Add or edit an outing\n"
+            "/removeinitiative — 🗑️ Remove an outing\n"
             "/leaderboard — 🏆 Top CGs ranked by impacts\n"
             "/cgbreakdown — 👥 Individual breakdown by CG"
         )
@@ -767,17 +861,20 @@ def main():
         entry_points=[
             CommandHandler("initiativelist", initiative_list),
             CommandHandler("editlist", edit_list_start),
+            CommandHandler("removeinitiative", remove_list_start)
         ],
         states={
             # add-an-outing flow (4 prompts)
-            INIT_DATE_TITLE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_date_title)],
+            INIT_DATE_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_date_title)],
             INIT_PURPOSE_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_purpose_impact)],
-            INIT_TIME_VENUE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_time_venue)],
-            INIT_PEOPLE:         [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_people)],
+            INIT_TIME_VENUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_time_venue)],
+            INIT_PEOPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_people)],
             # edit-an-outing flow
-            EDIT_CHOOSE_ROW:   [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choose_row)],
+            EDIT_CHOOSE_ROW: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choose_row)],
             EDIT_CHOOSE_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choose_field)],
-            EDIT_NEW_VALUE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_new_value)],
+            EDIT_NEW_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_new_value)],
+
+            REMOVE_INITIATIVE: [MessageHandler(filters.TEXT & ~filters.COMMAND, remove_initiative)]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
