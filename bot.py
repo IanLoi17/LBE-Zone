@@ -1,6 +1,7 @@
 import os
 import json
 import html
+import re
 import datetime
 import threading
 
@@ -150,11 +151,19 @@ def get_user_goal(user_id):
     return None
 
 def parse_outing_date(date_str):
-    """Turn a free-text date like '26 June' into a real date so the list can be sorted."""
+    """Turn a free-text date like '26 June' (or '24 June, Wednesday') into a real date so
+    the list can be sorted. A trailing day-of-week is stripped before parsing. Unparseable
+    text sorts last."""
     s = " ".join((date_str or "").split())
     if not s:
         return datetime.date.max
-    
+ 
+    # Strip a trailing day-of-week so '24 June, Wednesday' parses like '24 June'.
+    weekdays = (r"monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs"
+                r"|friday|fri|saturday|sat|sunday|sun")
+    s = re.sub(rf"[,\s]+(?:{weekdays})\.?$", "", s, flags=re.IGNORECASE).strip()
+    s = s.rstrip(",").strip()
+ 
     year = datetime.date.today().year
     attempts = [
         (s, "%d %B %Y"), (s, "%d %b %Y"),
@@ -169,7 +178,7 @@ def parse_outing_date(date_str):
             return datetime.datetime.strptime(text, fmt).date()
         except ValueError:
             continue
-
+ 
     return datetime.date.max
 
 def parse_outing_time(time_str):
@@ -184,6 +193,7 @@ def parse_outing_time(time_str):
             return datetime.datetime.strptime(s, fmt).time()
         except ValueError:
             continue
+
     return datetime.time.max
 
 def get_all_initiatives():
@@ -506,7 +516,7 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
         "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
-        "<i>Example:\n29 June | XX with XX</i>",
+        "<i>Example:\n29 June, Monday | XX with XX</i>",
         parse_mode="HTML"
     )
     return INIT_DATE_TITLE
@@ -570,7 +580,7 @@ async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_
     if len(parts) < 2 or not parts[1]:
         await update.message.reply_text(
             "❌ Please enter both the date + day and title of the outing, separated by a |\n\n"
-            "<i>Example: 29 June | XX with XX</i>",
+            "<i>Example: 29 June, Monday | XX with XX</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TITLE
@@ -655,7 +665,7 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "➕ Adding a new outing.\n\n"
             "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
-            "<i>Example:\n29 June | XX with XX</i>",
+            "<i>Example:\n29 June, Monday | XX with XX</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TITLE
