@@ -50,7 +50,7 @@ def update_user_goal(user_id, name, new_goal):
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Users")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Users + Goals")
     rows = sheet.get_all_values()
 
     # Users columns: Name | Telegram ID | Goal  (Goal is column 3)
@@ -108,7 +108,7 @@ def get_all_users():
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Users")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Users + Goals")
     rows = sheet.get_all_values()
 
     users = []
@@ -128,7 +128,7 @@ def get_user_name(user_id):
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Users")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Users + Goals")
     rows = sheet.get_all_values()
     for row in rows:
         if len(row) > 1 and row[1] == str(user_id):
@@ -141,7 +141,7 @@ def get_user_goal(user_id):
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Users")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Users + Goals")
     rows = sheet.get_all_values()
     # Users columns: Name | Telegram ID | Goal  (Telegram ID = index 1, Goal = index 2)
     for row in rows:
@@ -202,7 +202,7 @@ def get_all_initiatives():
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Initiatives")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Initiative List")
     rows = sheet.get_all_values()
 
     items = []
@@ -228,7 +228,7 @@ def add_new_initiative(data):
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Initiatives")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Initiative List")
     all_rows = sheet.get_all_values()
  
     max_id = 0
@@ -253,7 +253,7 @@ def update_initiative_field(row_num, field_name, new_value):
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Initiatives")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Initiative List")
     sheet.update_cell(row_num, INITIATIVES_COL[field_name], new_value)
 
 def remove_initiative_row(row_num):
@@ -261,7 +261,7 @@ def remove_initiative_row(row_num):
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Initiatives")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Initiative List")
  
     sheet.delete_rows(row_num)
  
