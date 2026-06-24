@@ -27,7 +27,7 @@ SCOPES = [
 ]
 
 PRIVILEGED_USERS = {
-    554392195,
+    # 554392195,
     929278147,
     851771524,
     32922725
@@ -332,7 +332,7 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     try:
-        save_to_google_sheet("Users", [name, str(user_id), goal, cg])
+        save_to_google_sheet("Users + Goals", [name, str(user_id), goal, cg])
         await update.message.reply_text(
             "✅ Saved. 🎯 GOAL LOCKED IN!\n\n"
             "Go out there and change lives!\n\n"
@@ -820,7 +820,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
  
     help_text = (
         "🌱 <b>LBE Zone OTHERS Companion</b>\n"
-        "<i>Your impact companion for the rest of 2026</i>\n\n"
+        "<i>Your friendly neighborhood impact companion!</i> 🤓\n\n"
         "/start — 🔥 Register and set your goal\n"
         "/impact — 🙌 Log an impact you made for someone\n"
         "/setgoal — 🎯 Update your goal\n"
@@ -839,8 +839,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/leaderboard — 🏆 Top CGs ranked by impacts\n"
             "/cgbreakdown — 👥 Individual breakdown by CG"
         )
- 
-    help_text += "\n\n<i>Bring the fire. Make a difference. 🔥</i>"
  
     await update.message.reply_text(help_text, parse_mode="HTML")
 
