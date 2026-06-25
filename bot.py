@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import gspread
 from google.oauth2.service_account import Credentials
 from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -45,6 +45,21 @@ INITIATIVES_COL = {
     "date": 2, "title": 3, "purpose": 4, "impact": 5, "time": 6, "venue": 7, "people": 8,
 }
 
+IMPACT_BUTTON = "🙌 Log an Impact"
+OILIST_BUTTON = "📋 O/I List"
+
+USER_KEYBOARD = ReplyKeyboardMarkup([[IMPACT_BUTTON]], resize_keyboard=True)
+ADMIN_KEYBOARD = ReplyKeyboardMarkup([[IMPACT_BUTTON, OILIST_BUTTON]], resize_keyboard=True)
+
+def keyboard_for(id):
+    """Return the right button set for the current user (Zone admins get the O/I List button)"""
+    try:
+        user_id = int(id)
+    except (TypeError, ValueError):
+        user_id = id
+
+    return ADMIN_KEYBOARD if user_id in PRIVILEGED_USERS else USER_KEYBOARD
+
 def save_to_google_sheet(worksheet_name, row):
     """Append one row to the Google Sheet. Reconnects each time (fine at this scale)."""
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
@@ -69,7 +84,6 @@ def update_user_goal(user_id, name, new_goal):
         
     # not registered yet — add a new row
     sheet.append_row([name, str(user_id), new_goal])
-    
 
 def get_user_impact_count(user_id):
     """Counts how many impacts this user has logged."""
@@ -305,6 +319,7 @@ INIT_DATE_TITLE, INIT_PURPOSE_IMPACT, INIT_TIME_VENUE, INIT_PEOPLE = range(6, 10
 EDIT_CHOOSE_ROW, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE = range(10, 13)
 REMOVE_INITIATIVE = 13
 ASK_VERSE_OTW = 14
+ASK_ANNOUNCE, CONFIRM_ANNOUNCE = range(15, 17)
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -365,7 +380,8 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Go out there and change lives!\n\n"
             "Use /impact to log an impact <i>(anytime, anywhere)</i> and /milestones to see what we're running towards as a Zone!\n\n"
             "Pro-Tip: Use /help to see all other available commands!",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=keyboard_for(user_id)
         )
 
     except Exception as e:
@@ -840,12 +856,128 @@ async def post_verseotw(context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             # Most common cause: the user blocked the bot or never started a chat with it.
             failed += 1
-            print(f"[verse] could not DM {user_id}: {e}")
+            print(f"[verseotw] could not DM {user_id}: {e}")
 
         await asyncio.sleep(0.05)
 
-    print(f"[verse] weekly verse sent to {sent} user(s); {failed} failed.")
+    print(f"[verseotw] weekly verse sent to {sent} user(s); {failed} failed.")
+
+async def announce_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/announce command for Zone admins only. Sends a one-off announcement to every registered user."""
+    user_id = update.effective_user.id
+    if user_id not in PRIVILEGED_USERS:
+        await update.message.reply_text("🔒 Oops! This command is for Admins.")      
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        "📢 What announcement would you like to send to <b>everyone</b>?\n\n"
+        "<i>Type your message, or /cancel to stop.</i>",
+        parse_mode="HTML"
+    )
+
+    return ASK_ANNOUNCE
+
+async def receive_announce(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Store the announcement and show a preview that double confirm the message before broadcasting."""
+    text = update.message.text
+    context.user_data["announce_text"] = text
+    
+    try:
+        users = get_all_users()
+    except Exception as e:
+        print(f"[announce] could not read users: {e}")
+        await update.message.reply_text("❌ I couldn't read the user list. Please try /announce again in a moment.")
+
+        return ConversationHandler.END
+    
+    recipient_count = len({user["id"] for user in users})
+    context.user_data["announce_count"] = recipient_count
+
+    preview = f"📢 <b>ANNOUNCEMENT</b>\n\n{text}"
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📤 Send", callback_data="announce_send"),
+            InlineKeyboardButton("❌ Cancel", callback_data="announce_cancel"),
+        ]
+    ])
+
+    try:
+        await update.message.reply_text(
+            f"{preview}\n\n———\n<i>Preview above. Send this to everyone?</i>",
+            parse_mode="HTML",
+            reply_markup=buttons,
+        )
+    except Exception as e:
+        print(f"[announce] preview failed (likely bad formatting): {e}")
+        await update.message.reply_text(
+            "❌ I couldn't format that message, please try sending it again.",
+            parse_mode="HTML"
+        )
+
+        return ASK_ANNOUNCE
+    
+    return CONFIRM_ANNOUNCE
+
+async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast the announcement to every registered user."""
+    query = update.callback_query
+    await query.answer()
+
+    text = context.user_data.get("announce_text", "")
+    if not text:
+        await query.edit_message_text("Nothing to send.")
+        return ConversationHandler.END
+    
+    try:
+        users = get_all_users()
+    except Exception as e:
+        print(f"[announce] could not read users: {e}")
+        await query.edit_message_text("❌ I couldn't read the user list. Please try /announce again.")
         
+        return ConversationHandler.END
+    
+    message = f"📢 <b>ANNOUNCEMENT</b>\n\n{text}"
+    await query.edit_message_text("📤 Sending announcement...")
+
+    sent, failed = 0, 0
+    seen_ids = set()
+    for user in users:
+        user_id = user["id"]
+
+        if user_id in seen_ids:
+            continue
+        
+        seen_ids.add(user_id)
+        try:
+            await context.bot.send_message(
+                chat_id=int(user_id), text=message, parse_mode="HTML", reply_markup=keyboard_for(user_id)
+            )
+            
+            sent += 1
+        except Exception as e:
+            failed += 1
+            print(f"[announce] could not DM {user_id}: {e}")
+
+        await asyncio.sleep(0.05)
+
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=f"✅ Announcement sent to {sent} people. ({failed} couldn't be reached.)"
+    )
+
+    context.user_data.pop("announce_text", None)
+    context.user_data.pop("announce_count", None)
+    
+    return ConversationHandler.END
+
+async def announce_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Abort the announcement without sending anything."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.pop("announce_text", None)
+    context.user_data.pop("announce_count", None)
+    await query.edit_message_text("Announcement cancelled. Nothing was sent.")
+    return ConversationHandler.END
 
 async def milestones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows the live total progress towards 1000 impacts"""
@@ -949,11 +1081,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/editlist — ✏️ Add or edit an outing\n"
             "/removeinitiative — 🗑️ Remove an outing\n"
             "/verseotw — 📖 Set the Verse of the Week\n"
+            "/announce — 📢 Send an announcement to everyone\n"
             "/leaderboard — 🏆 Top CGs ranked by impacts\n"
             "/cgbreakdown — 👥 Individual breakdown by CG"
         )
  
-    await update.message.reply_text(help_text, parse_mode="HTML")
+    await update.message.reply_text(help_text, parse_mode="HTML", reply_markup=keyboard_for(user_id))
 
 def main():
     threading.Thread(target=run_web, daemon=True).start()
@@ -971,7 +1104,10 @@ def main():
     app.add_handler(onboarding)
 
     impact_conversation = ConversationHandler(
-        entry_points=[CommandHandler("impact", impact_start)],
+        entry_points=[
+            CommandHandler("impact", impact_start),
+            MessageHandler(filters.Regex("^🙌 Log an Impact$"), impact_start)
+        ],
         states={
             ASK_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_impact)],
             CONFIRM_IMPACT: [
@@ -996,7 +1132,8 @@ def main():
         entry_points=[
             CommandHandler("initiativelist", initiative_list),
             CommandHandler("editlist", edit_list_start),
-            CommandHandler("removeinitiative", remove_list_start)
+            CommandHandler("removeinitiative", remove_list_start),
+            MessageHandler(filters.Regex("^📋 O/I List$"), initiative_list),
         ],
         states={
             # add-an-outing flow (4 prompts)
@@ -1024,6 +1161,20 @@ def main():
     )
 
     app.add_handler(verse_conversation)
+
+    announce_conversation = ConversationHandler(
+        entry_points=[CommandHandler("announce", announce_start)],
+        states={
+            ASK_ANNOUNCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_announce)],
+            CONFIRM_ANNOUNCE: [
+                CallbackQueryHandler(announce_send, pattern="^announce_send$"),
+                CallbackQueryHandler(announce_cancel, pattern="^announce_cancel$"),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    app.add_handler(announce_conversation)
 
     app.add_handler(CommandHandler("milestones", milestones))
     app.add_handler(CommandHandler("leaderboard", leaderboard))
