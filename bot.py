@@ -60,6 +60,13 @@ def keyboard_for(id):
 
     return ADMIN_KEYBOARD if user_id in PRIVILEGED_USERS else USER_KEYBOARD
 
+async def reply(update, text, **kwargs):
+    """reply_text that always keeps the user's button keyboard attached, so it
+    never disappears between messages. Pass reply_markup=... to override for a
+    specific message (e.g. the inline confirm buttons)."""
+    kwargs.setdefault("reply_markup", keyboard_for(update.effective_user.id))
+    return await update.message.reply_text(text, **kwargs)
+
 def save_to_google_sheet(worksheet_name, row):
     """Append one row to the Google Sheet. Reconnects each time (fine at this scale)."""
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
@@ -81,7 +88,7 @@ def update_user_goal(user_id, name, new_goal):
         if len(row) > 1 and row[1] == str(user_id):
             sheet.update_cell(i + 1, 3, new_goal)  # i+1 = sheet row number, col 3 = Goal
             return
-        
+
     # not registered yet — add a new row
     sheet.append_row([name, str(user_id), new_goal])
 
@@ -155,7 +162,7 @@ def get_user_name(user_id):
     for row in rows:
         if len(row) > 1 and row[1] == str(user_id):
             return row[0]
-        
+
     return None
 
 def get_user_goal(user_id):
@@ -169,7 +176,7 @@ def get_user_goal(user_id):
     for row in rows:
         if len(row) > 2 and row[1] == str(user_id):
             return row[2]
-        
+
     return None
 
 def parse_outing_date(date_str):
@@ -179,13 +186,13 @@ def parse_outing_date(date_str):
     s = " ".join((date_str or "").split())
     if not s:
         return datetime.date.max
- 
+
     # Strip a trailing day-of-week so '24 June, Wednesday' parses like '24 June'.
     weekdays = (r"monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs"
                 r"|friday|fri|saturday|sat|sunday|sun")
     s = re.sub(rf"[,\s]+(?:{weekdays})\.?$", "", s, flags=re.IGNORECASE).strip()
     s = s.rstrip(",").strip()
- 
+
     year = datetime.date.today().year
     attempts = [
         (s, "%d %B %Y"), (s, "%d %b %Y"),
@@ -200,7 +207,7 @@ def parse_outing_date(date_str):
             return datetime.datetime.strptime(text, fmt).date()
         except ValueError:
             continue
- 
+
     return datetime.date.max
 
 def parse_outing_time(time_str):
@@ -252,13 +259,13 @@ def add_new_initiative(data):
     client = gspread.authorize(creds)
     sheet = client.open_by_key(SHEET_ID).worksheet("Initiative List")
     all_rows = sheet.get_all_values()
- 
+
     max_id = 0
     for row in all_rows[1:]:
         if len(row) > 0 and row[0].strip().isdigit():
             max_id = max(max_id, int(row[0]))
     next_id = max_id + 1
- 
+
     sheet.append_row([
         str(next_id),
         data.get("date", ""),
@@ -269,7 +276,7 @@ def add_new_initiative(data):
         data.get("venue", ""),
         data.get("people", ""),
     ])
- 
+
 def update_initiative_field(row_num, field_name, new_value):
     """Update a single cell of an existing initiative (row_num is the real sheet row number)."""
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
@@ -279,14 +286,14 @@ def update_initiative_field(row_num, field_name, new_value):
     sheet.update_cell(row_num, INITIATIVES_COL[field_name], new_value)
 
 def remove_initiative_row(row_num):
-    """NEW HELPER: delete one outing row, then renumber the ID column so it stays 1, 2, 3..."""
+    """Delete one outing row, then renumber the ID column so it stays 1, 2, 3..."""
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     client = gspread.authorize(creds)
     sheet = client.open_by_key(SHEET_ID).worksheet("Initiative List")
- 
+
     sheet.delete_rows(row_num)
- 
+
     # Renumber the ID column (column A) for the remaining outings, top to bottom.
     rows = sheet.get_all_values()
     new_id = 0
@@ -375,7 +382,7 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         save_to_google_sheet("Users + Goals", [name, str(user_id), goal, cg])
-        await update.message.reply_text(
+        await reply(update, 
             "✅ Saved. 🎯 GOAL LOCKED IN!\n\n"
             "Go out there and change lives!\n\n"
             "Use /impact to log an impact <i>(anytime, anywhere)</i> and /milestones to see what we're running towards as a Zone!\n\n"
@@ -386,14 +393,14 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print(f"[error] could not save to Google Sheet: {e}")
-        await update.message.reply_text(
+        await reply(update, 
             "Hmm, I had trouble saving that just now. Please try /start again in a moment."
         )
 
     return ConversationHandler.END
 
 async def impact_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    await reply(update, 
         "🔥 Love it! What impact did you make?\n\n"
         "<i>(If you made multiple impacts, you can log each one separately using the same command.)</i>",
         parse_mode="HTML"
@@ -411,7 +418,7 @@ async def receive_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ])
 
-    await update.message.reply_text(
+    await reply(update, 
         "📝 Just to confirm — is this what you'd like to log?\n\n"
         f"“{html.escape(context.user_data['pending_impact'])}”\n\n"
         "Tap ✅ Yes, log it if it's correct, or ✏️ Keep editing to rewrite it.",
@@ -433,7 +440,7 @@ async def confirm_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_to_google_sheet("Impacts", [name, str(user_id), impact])
         count = get_user_impact_count(user_id)
         goal = get_user_goal(user_id)
- 
+
         if goal:
             stats_line = (
                 f"📊 You've now logged {count} {impacts_word(count)}!\n"
@@ -444,7 +451,7 @@ async def confirm_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📊 You've now logged {count} {impacts_word(count)}!\n"
                 "(Tip: run /start to set your personal goal.)"
             )
- 
+
         await query.edit_message_text(
             "🙌 AMAZING! That's another impact made this week!\n\n"
             f"{stats_line}\n\n"
@@ -473,7 +480,7 @@ async def edit_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ASK_IMPACT
 
 async def setgoal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    await reply(update, 
         "🎯 Let's update your goal!\n\n"
         "What's your goal for the rest of 2026?\n"
         "<i>Just type it out — or /cancel to keep your current one.</i>",
@@ -489,7 +496,7 @@ async def receive_new_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         update_user_goal(user_id, name, new_goal)
-        await update.message.reply_text(
+        await reply(update, 
             "✅ Goal updated!\n\n"
             f"🎯 Your new goal: {new_goal}\n\n"
             "Keep bringing the fire! 🔥"
@@ -497,16 +504,16 @@ async def receive_new_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print(f"[error] could not update goal: {e}")
-        await update.message.reply_text(
+        await reply(update, 
             "Hmm, I had trouble updating that just now. Please try /setgoal again in a moment."
         )
- 
+
     return ConversationHandler.END
-        
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancels the onboarding process if they type /cancel."""
-    await update.message.reply_text(
+    await reply(update, 
         "Action cancelled."
     )
 
@@ -522,7 +529,7 @@ def split_two(text):
     else:
         parts = [text]
     return [p.strip() for p in parts]
- 
+
 def format_initiatives(items):
     """Build a readable display of all initiatives for the admin."""
     lines = [
@@ -542,148 +549,148 @@ def format_initiatives(items):
             f"👥 People going: {html.escape(item['people'])}"
         )
     return "\n\n".join(lines)
- 
+
 async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/initiativelist — show outings; if the list is empty, start adding the first one."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 Oops! This command is for Admins.")
+        await reply(update, "🔒 Oops! This command is for Admins.")
         return ConversationHandler.END
- 
+
     try:
         items = get_all_initiatives()
     except Exception as e:
         print(f"[error] could not read Initiatives tab: {e}")
-        await update.message.reply_text("❌ I couldn't read the initiatives sheet. Please try again in a moment.")
+        await reply(update, "❌ I couldn't read the initiatives sheet. Please try again in a moment.")
         return ConversationHandler.END
- 
+
     if items:
-        await update.message.reply_text(format_initiatives(items), parse_mode="HTML")
+        await reply(update, format_initiatives(items), parse_mode="HTML")
         return ConversationHandler.END
- 
+
     context.user_data["new_init"] = {}
-    await update.message.reply_text(
+    await reply(update, 
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
         "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
         "<i>Example:\n29 June, Monday | XX with XX</i>",
         parse_mode="HTML"
     )
     return INIT_DATE_TITLE
- 
+
 async def edit_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/editlist — list outings and ask which to edit, or 0 to add a new one."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 Oops! This command is for Admins.")
+        await reply(update, "🔒 Oops! This command is for Admins.")
         return ConversationHandler.END
- 
+
     try:
         items = get_all_initiatives()
     except Exception as e:
         print(f"[error] could not read Initiatives tab: {e}")
-        await update.message.reply_text("❌ I couldn't read the initiatives sheet. Please try again in a moment.")
+        await reply(update, "❌ I couldn't read the initiatives sheet. Please try again in a moment.")
         return ConversationHandler.END
- 
+
     context.user_data["edit_items"] = items
- 
+
     lines = ["✏️ <b>EDIT INITIATIVES</b>\n", "0. ➕ Add a new outing"]
     for idx, item in enumerate(items, start=1):
         lines.append(f"{idx}. {html.escape(item['title'])} ({html.escape(item['date'])})")
     lines.append("\n<i>Reply with the number you'd like to edit (or 0 to add new). /cancel to exit.</i>")
- 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+    await reply(update, "\n".join(lines), parse_mode="HTML")
     return EDIT_CHOOSE_ROW
 
 async def remove_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """NEW: /removeinitiative — list outings and ask which number to delete (admins only)."""
+    """/removeinitiative — list outings and ask which number to delete (admins only)."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 Oops! This command is for Admins.")
+        await reply(update, "🔒 Oops! This command is for Admins.")
         return ConversationHandler.END
- 
+
     try:
         items = get_all_initiatives()
     except Exception as e:
         print(f"[error] could not read Initiatives tab: {e}")
-        await update.message.reply_text("❌ I couldn't read the initiatives sheet. Please try again in a moment.")
+        await reply(update, "❌ I couldn't read the initiatives sheet. Please try again in a moment.")
         return ConversationHandler.END
- 
+
     if not items:
-        await update.message.reply_text("📋 There are no outings to remove.")
+        await reply(update, "📋 There are no outings to remove.")
         return ConversationHandler.END
- 
+
     context.user_data["remove_items"] = items
- 
+
     lines = ["🗑️ <b>REMOVE AN OUTING</b>\n"]
     for idx, item in enumerate(items, start=1):
         lines.append(f"{idx}. {html.escape(item['title'])} ({html.escape(item['date'])})")
     lines.append("\n<i>Reply with the number to remove. /cancel to exit.</i>")
- 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+    await reply(update, "\n".join(lines), parse_mode="HTML")
     return REMOVE_INITIATIVE
- 
+
 # --- shared "add an outing" flow (4 prompts) -------------------------------
- 
+
 async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = split_two(update.message.text)
     if len(parts) < 2 or not parts[1]:
-        await update.message.reply_text(
+        await reply(update, 
             "❌ Please enter both the date + day and title of the outing, separated by a |\n\n"
             "<i>Example: 29 June, Monday | XX with XX</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TITLE
- 
+
     context.user_data["new_init"]["date"] = parts[0]
     context.user_data["new_init"]["title"] = parts[1]
-    await update.message.reply_text(
+    await reply(update, 
         "🎯 What is the <b>purpose</b> and <b>impact</b> of this outing? Please follow the example below.\n\n"
         "<i>Example:\nContinue building r/s with XX | Inspire XX to...</i>",
         parse_mode="HTML"
     )
     return INIT_PURPOSE_IMPACT
- 
+
 async def init_collect_purpose_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = split_two(update.message.text)
     if len(parts) < 2 or not parts[1]:
-        await update.message.reply_text(
+        await reply(update, 
             "❌ Please enter both the purpose and impact of the outing, separated by a |\n\n"
             "<i>Example: Continue building r/s with XX | Inspire XX to...</i>",
             parse_mode="HTML"
         )
         return INIT_PURPOSE_IMPACT
- 
+
     context.user_data["new_init"]["purpose"] = parts[0]
     context.user_data["new_init"]["impact"] = parts[1]
-    await update.message.reply_text(
+    await reply(update, 
         "⏰ What is the <b>time</b> and <b>venue</b> of the outing? Please follow the example below.\n\n"
         "<i>Example:\n2 PM | Location</i>",
         parse_mode="HTML"
     )
     return INIT_TIME_VENUE
- 
+
 async def init_collect_time_venue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = split_two(update.message.text)
     if len(parts) < 2 or not parts[1]:
-        await update.message.reply_text(
+        await reply(update, 
             "❌ Please enter both the time and the venue, separated by a |\n\n"
             "<i>Example: 2 PM | Location</i>",
             parse_mode="HTML"
         )
         return INIT_TIME_VENUE
- 
+
     context.user_data["new_init"]["time"] = parts[0]
     context.user_data["new_init"]["venue"] = parts[1]
-    await update.message.reply_text("👥 Lastly, who's <b>going</b> for the outing?", parse_mode="HTML")
+    await reply(update, "👥 Lastly, who's <b>going</b> for the outing?", parse_mode="HTML")
     return INIT_PEOPLE
- 
+
 async def init_collect_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_init"]["people"] = update.message.text.strip()
     data = context.user_data.get("new_init", {})
- 
+
     try:
         add_new_initiative(data)
-        await update.message.reply_text(
+        await reply(update, 
             "✅ Outing saved!\n\n"
             f"🏷️ {html.escape(data.get('title', ''))}\n"
             f"📅 {html.escape(data.get('date', ''))}\n\n"
@@ -692,37 +699,37 @@ async def init_collect_people(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     except Exception as e:
         print(f"[error] could not save initiative: {e}")
-        await update.message.reply_text("❌ I couldn't save that. Please try /editlist again in a moment.")
- 
+        await reply(update, "❌ I couldn't save that. Please try /editlist again in a moment.")
+
     context.user_data.pop("new_init", None)
     return ConversationHandler.END
- 
+
 # --- edit an existing outing -----------------------------------------------
- 
+
 async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     items = context.user_data.get("edit_items", [])
- 
+
     if not text.isdigit() or not (0 <= int(text) <= len(items)):
-        await update.message.reply_text(f"❌ Please reply with a number from 0 to {len(items)}.")
+        await reply(update, f"❌ Please reply with a number from 0 to {len(items)}.")
         return EDIT_CHOOSE_ROW
- 
+
     choice = int(text)
- 
+
     if choice == 0:
         context.user_data["new_init"] = {}
-        await update.message.reply_text(
+        await reply(update, 
             "➕ Adding a new outing.\n\n"
             "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
             "<i>Example:\n29 June, Monday | XX with XX</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TITLE
- 
+
     item = items[choice - 1]
     context.user_data["edit_row_num"] = item["row_num"]
     context.user_data["edit_title"] = item["title"]
-    await update.message.reply_text(
+    await reply(update, 
         f"Editing <b>{html.escape(item['title'])}</b>. Which field would you like to change?\n\n"
         "1. 📅 Date\n"
         "2. 🏷️ Title\n"
@@ -735,7 +742,7 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     return EDIT_CHOOSE_FIELD
- 
+
 async def edit_choose_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = update.message.text.strip()
     field_map = {
@@ -743,56 +750,56 @@ async def edit_choose_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "5": "time", "6": "venue", "7": "people",
     }
     if choice not in field_map:
-        await update.message.reply_text("❌ Please reply with a number from 1 to 7.")
+        await reply(update, "❌ Please reply with a number from 1 to 7.")
         return EDIT_CHOOSE_FIELD
- 
+
     context.user_data["edit_field"] = field_map[choice]
-    await update.message.reply_text("✏️ Send the new value for that field:")
+    await reply(update, "✏️ Send the new value for that field:")
     return EDIT_NEW_VALUE
- 
+
 async def edit_new_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_value = update.message.text.strip()
     row_num = context.user_data.get("edit_row_num")
     field = context.user_data.get("edit_field")
- 
+
     try:
         update_initiative_field(row_num, field, new_value)
-        await update.message.reply_text("🎯 Updated! Use /initiativelist to see the changes.")
+        await reply(update, "🎯 Updated! Use /initiativelist to see the changes.")
     except Exception as e:
         print(f"[error] could not update initiative: {e}")
-        await update.message.reply_text("❌ I couldn't update that. Please try /editlist again in a moment.")
+        await reply(update, "❌ I couldn't update that. Please try /editlist again in a moment.")
     return ConversationHandler.END
 
 async def remove_initiative(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     items = context.user_data.get("remove_items", [])
- 
+
     if not text.isdigit() or not (1 <= int(text) <= len(items)):
-        await update.message.reply_text(f"❌ Please reply with a number from 1 to {len(items)}.")
+        await reply(update, f"❌ Please reply with a number from 1 to {len(items)}.")
         return REMOVE_INITIATIVE
- 
+
     item = items[int(text) - 1]
     try:
         remove_initiative_row(item["row_num"])
-        await update.message.reply_text(
+        await reply(update, 
             f"🗑️ Removed <b>{html.escape(item['title'])}</b> ({html.escape(item['date'])}).\n\n"
             "The remaining outings have been renumbered. Use /initiativelist to see the updated list.",
             parse_mode="HTML"
         )
     except Exception as e:
         print(f"[error] could not remove initiative: {e}")
-        await update.message.reply_text("❌ I couldn't remove that. Please try /removeinitiative again in a moment.")
-    
+        await reply(update, "❌ I couldn't remove that. Please try /removeinitiative again in a moment.")
+
     return ConversationHandler.END
 
 async def verseotw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/verseotw for admin to set for the upcoming week"""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 Oops! This command is for Admins.")
+        await reply(update, "🔒 Oops! This command is for Admins.")
         return ConversationHandler.END
-    
-    await update.message.reply_text(
+
+    await reply(update, 
         "📖 Send me the <b>Verse of the Week</b>.\n\n"
         "<i>For example:\n1 John 4:7 (NIV): — Dear friends, let us love one another, for love comes from God. Everyone who loves has been born of God and knows God.</i>\n\n"
         "Or /cancel to keep the current one.",
@@ -806,35 +813,35 @@ async def receive_verseotw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     verseotw = update.message.text.strip()
     try:
         set_verse(verseotw)
-        await update.message.reply_text(
+        await reply(update, 
             "✅ Verse of the Week saved!\n\n"
             f"📖 This week's verse: {html.escape(verseotw)}",
             parse_mode="HTML"
         )
     except Exception as e:
         print(f"[error] could not save verse: {e}")
-        await update.message.reply_text("❌ I couldn't save that. Please try /verseotw again in a moment.")
+        await reply(update, "❌ I couldn't save that. Please try /verseotw again in a moment.")
 
     return ConversationHandler.END
 
 async def post_verseotw(context: ContextTypes.DEFAULT_TYPE):
-    """JobQueue callback - runs Monday morning and DMs the verse to every registered user."""
+    """JobQueue callback - runs Monday and DMs the verse to every registered user."""
     try:
         verseotw = get_verseotw()
     except Exception as e:
         print(f"[verseotw] could not read verse of the week: {e}")
         return
-    
+
     if not verseotw:
         print("[verseotw] no verse of the week set.")
         return
-    
+
     try:
         users = get_all_users()
     except Exception as e:
         print(f"[verseotw] could not read users: {e}")
         return
-    
+
     message = (
         "📖 <b>VERSE OF THE WEEK</b> 🌱\n\n"
         f"{html.escape(verseotw)}\n\n"
@@ -866,10 +873,10 @@ async def announce_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/announce command for Zone admins only. Sends a one-off announcement to every registered user."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 Oops! This command is for Admins.")      
+        await reply(update, "🔒 Oops! This command is for Admins.")
         return ConversationHandler.END
 
-    await update.message.reply_text(
+    await reply(update, 
         "📢 What announcement would you like to send to <b>everyone</b>?\n\n"
         "<i>Type your message, or /cancel to stop.</i>",
         parse_mode="HTML"
@@ -878,44 +885,41 @@ async def announce_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ASK_ANNOUNCE
 
 async def receive_announce(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Store the announcement and show a preview that double confirm the message before broadcasting."""
+    """Store the announcement and show a preview to confirm before broadcasting."""
     text = update.message.text
     context.user_data["announce_text"] = text
-    
+
     try:
         users = get_all_users()
     except Exception as e:
         print(f"[announce] could not read users: {e}")
-        await update.message.reply_text("❌ I couldn't read the user list. Please try /announce again in a moment.")
-
+        await reply(update, "❌ I couldn't read the user list. Please try /announce again in a moment.")
         return ConversationHandler.END
-    
+
     recipient_count = len({user["id"] for user in users})
     context.user_data["announce_count"] = recipient_count
 
     preview = f"📢 <b>ANNOUNCEMENT</b>\n\n{text}"
     buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📤 Send", callback_data="announce_send"),
+            InlineKeyboardButton(f"📤 Send to all {recipient_count}", callback_data="announce_send"),
             InlineKeyboardButton("❌ Cancel", callback_data="announce_cancel"),
         ]
     ])
 
     try:
-        await update.message.reply_text(
+        await reply(update, 
             f"{preview}\n\n———\n<i>Preview above. Send this to everyone?</i>",
             parse_mode="HTML",
             reply_markup=buttons,
         )
     except Exception as e:
         print(f"[announce] preview failed (likely bad formatting): {e}")
-        await update.message.reply_text(
-            "❌ I couldn't format that message, please try sending it again.",
-            parse_mode="HTML"
+        await reply(update, 
+            "❌ I couldn't format that message — please try sending it again."
         )
-
         return ASK_ANNOUNCE
-    
+
     return CONFIRM_ANNOUNCE
 
 async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -927,15 +931,14 @@ async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         await query.edit_message_text("Nothing to send.")
         return ConversationHandler.END
-    
+
     try:
         users = get_all_users()
     except Exception as e:
         print(f"[announce] could not read users: {e}")
         await query.edit_message_text("❌ I couldn't read the user list. Please try /announce again.")
-        
         return ConversationHandler.END
-    
+
     message = f"📢 <b>ANNOUNCEMENT</b>\n\n{text}"
     await query.edit_message_text("📤 Sending announcement...")
 
@@ -946,13 +949,14 @@ async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if user_id in seen_ids:
             continue
-        
+
         seen_ids.add(user_id)
         try:
+            # Attaching the keyboard here also delivers the buttons to existing users.
+            # Admins get the extra O/I List button; everyone else gets just Impact.
             await context.bot.send_message(
                 chat_id=int(user_id), text=message, parse_mode="HTML", reply_markup=keyboard_for(user_id)
             )
-            
             sent += 1
         except Exception as e:
             failed += 1
@@ -967,7 +971,7 @@ async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data.pop("announce_text", None)
     context.user_data.pop("announce_count", None)
-    
+
     return ConversationHandler.END
 
 async def announce_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -998,22 +1002,22 @@ async def milestones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1000 Impacts: 🏁"
     )
 
-    await update.message.reply_text(milestone_text, parse_mode="HTML")
+    await reply(update, milestone_text, parse_mode="HTML")
 
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays overall zone rankings to authorized users only."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 Oops! This command is for Admins.")
+        await reply(update, "🔒 Oops! This command is for Admins.")
         return
-    
+
     users = get_all_users()
     counts = get_impact_counts()
 
     if not users:
-        await update.message.reply_text("No data yet — no one has registered.")
+        await reply(update, "No data yet — no one has registered.")
         return
-    
+
     cg_totals = {}
     for user in users:
         cg_totals[user["cg"]] = cg_totals.get(user["cg"], 0) + counts.get(user["id"], 0)
@@ -1025,22 +1029,22 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{rank}. {html.escape(cg)} — {total} {impacts_word(total)}")
     lines.append("\nKeep pushing towards the 1,000 zone goal!")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    await reply(update, "\n".join(lines), parse_mode="HTML")
 
 async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays individual breakdown to authorized users only."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
-        await update.message.reply_text("🔒 Oops! This command is for Admins.")
+        await reply(update, "🔒 Oops! This command is for Admins.")
         return
-    
+
     users = get_all_users()
     counts = get_impact_counts()
 
     if not users:
-        await update.message.reply_text("No data yet — no one has registered.")
+        await reply(update, "No data yet — no one has registered.")
         return
-    
+
     cg_members = {}
     for user in users:
         cg_members.setdefault(user["cg"], []).append(user)
@@ -1053,15 +1057,15 @@ async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for user in members:
             count = counts.get(user["id"], 0)
             lines.append(f"• {html.escape(user['name'])}: {count}")
-        
+
         lines.append("")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    await reply(update, "\n".join(lines), parse_mode="HTML")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows the available commands. Leader commands only show for privileged users."""
     user_id = update.effective_user.id
- 
+
     help_text = (
         "🌱 <b>LBE Zone OTHERS Companion</b>\n"
         "<i>Your friendly neighborhood impact companion!</i> 🤓\n\n"
@@ -1072,7 +1076,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/cancel — ❌ Cancel whatever's in progress\n"
         "/help — ℹ️ Show all available commands"
     )
- 
+
     # Only privileged users see the leader commands
     if user_id in PRIVILEGED_USERS:
         help_text += (
@@ -1085,8 +1089,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/leaderboard — 🏆 Top CGs ranked by impacts\n"
             "/cgbreakdown — 👥 Individual breakdown by CG"
         )
- 
-    await update.message.reply_text(help_text, parse_mode="HTML", reply_markup=keyboard_for(user_id))
+
+    await reply(update, help_text, parse_mode="HTML")
 
 def main():
     threading.Thread(target=run_web, daemon=True).start()
@@ -1106,7 +1110,7 @@ def main():
     impact_conversation = ConversationHandler(
         entry_points=[
             CommandHandler("impact", impact_start),
-            MessageHandler(filters.Regex("^🙌 Log an Impact$"), impact_start)
+            MessageHandler(filters.Regex("^🙌 Log an Impact$"), impact_start),
         ],
         states={
             ASK_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_impact)],
@@ -1159,7 +1163,6 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-
     app.add_handler(verse_conversation)
 
     announce_conversation = ConversationHandler(
@@ -1173,7 +1176,6 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-
     app.add_handler(announce_conversation)
 
     app.add_handler(CommandHandler("milestones", milestones))
@@ -1181,6 +1183,8 @@ def main():
     app.add_handler(CommandHandler("cgbreakdown", cg_breakdown))
     app.add_handler(CommandHandler("help", help_command))
 
+    # Weekly Verse of the Week — sent every Monday at 12:00 noon SGT.
+    # In PTB v20+, days use 0=Sunday..6=Saturday, so Monday = 1.
     app.job_queue.run_daily(
         post_verseotw,
         time=datetime.time(hour=12, minute=0, tzinfo=SGT),
