@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import gspread
 from google.oauth2.service_account import Credentials
 from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -50,6 +50,25 @@ OILIST_BUTTON = "📋 O/I List"
 
 USER_KEYBOARD = ReplyKeyboardMarkup([[IMPACT_BUTTON]], resize_keyboard=True)
 ADMIN_KEYBOARD = ReplyKeyboardMarkup([[IMPACT_BUTTON, OILIST_BUTTON]], resize_keyboard=True)
+
+PUBLIC_COMMANDS = [
+    BotCommand("start", "Register and set your goal"),
+    BotCommand("impact", "Log an impact you made for someone"),
+    BotCommand("setgoal", "Update your goal"),
+    BotCommand("milestones", "See our progress towards 1000"),
+    BotCommand("help", "Show all available commands"),
+    BotCommand("cancel", "Cancel whatever's in progress"),
+]
+
+ADMIN_COMMANDS = PUBLIC_COMMANDS + [
+    BotCommand("initiativelist", "View weekly outings"),
+    BotCommand("editlist", "Add or edit an outing"),
+    BotCommand("removeinitiative", "Remove an outing"),
+    BotCommand("verseotw", "Set or edit the Verse of the Week"),
+    BotCommand("announce", "Send an announcement to everyone"),
+    BotCommand("leaderboard", "Top CGs ranked by impacts"),
+    BotCommand("cgbreakdown", "Individual breakdown by CG"),
+]
 
 def keyboard_for(id):
     """Return the right button set for the current user (Zone admins get the O/I List button)"""
@@ -1092,10 +1111,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await reply(update, help_text, parse_mode="HTML")
 
+async def post_init(app):
+    await app.bot.set_my_commands(PUBLIC_COMMANDS, scope=BotCommandScopeDefault())
+    for admin_id in PRIVILEGED_USERS:
+        try:
+            await app.bot.set_my_commands(
+                ADMIN_COMMANDS, scope=BotCommandScopeChat(chat_id=admin_id)
+            )
+        except Exception as e:
+            print(f"[commands] could not set admin menu for {admin_id}: {e}")
+
 def main():
     threading.Thread(target=run_web, daemon=True).start()
 
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).post_init(post_init).build()
     onboarding = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
