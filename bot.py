@@ -366,7 +366,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if existing_name:
         await reply(update,
-            f"Hello {html.escape(existing_name)}, you have already registered using /start. Go out there and make an impact — change the world for Others! 🌍🔥"
+            f"Hello {html.escape(existing_name)}, you have already registered using /start. Go out there and make an impact — change the world for Others! 🌍🔥",
             parse_mode="HTML"
         )
         
