@@ -357,6 +357,21 @@ def run_web():
     web_app.run(host="0.0.0.0", port=port)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        existing_name = get_user_name(user_id)
+    except Exception as e:
+        print(f"[start] could not check registration: {e}")
+        existing_name = None
+
+    if existing_name:
+        await reply(update,
+            f"Hello {html.escape(existing_name)}, you have already registered using /start. Go out there and make an impact — change the world for Others! 🌍🔥"
+            parse_mode="HTML"
+        )
+        
+        return ConversationHandler.END
+        
     await update.message.reply_text(
         "Hey there! 🤟 Ready to make an impact and reach Others? I'm here to help you out!\n\n"
         "This next half of 2026 - it's an opportunity for you Make A Difference in someone else's life! Set a goal, and stay faithful to it!\n\n"
