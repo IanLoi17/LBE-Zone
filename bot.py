@@ -821,6 +821,7 @@ async def verseotw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply(update, 
         "📖 Send me the <b>Verse of the Week</b>.\n\n"
         "<i>For example:\n1 John 4:7 (NIV): — Dear friends, let us love one another, for love comes from God. Everyone who loves has been born of God and knows God.</i>\n\n"
+        "To change the verse later, just run the command /verseotw again.\n"
         "Or /cancel to keep the current one.",
         parse_mode="HTML"
     )
@@ -1103,7 +1104,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/initiativelist — 📋 View weekly outings (or add the first if empty)\n"
             "/editlist — ✏️ Add or edit an outing\n"
             "/removeinitiative — 🗑️ Remove an outing\n"
-            "/verseotw — 📖 Set the Verse of the Week\n"
+            "/verseotw — 📖 Set or edit the Verse of the Week\n"
             "/announce — 📢 Send an announcement to everyone\n"
             "/leaderboard — 🏆 Top CGs ranked by impacts\n"
             "/cgbreakdown — 👥 Individual breakdown by CG"
