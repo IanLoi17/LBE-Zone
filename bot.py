@@ -1027,7 +1027,11 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["🏆 <b>ZONE LEADERBOARD</b> 🏆\n"]
     for rank, (cg, total) in enumerate(ranked, start=1):
         lines.append(f"{rank}. {html.escape(cg)} — {total} {impacts_word(total)}")
-    lines.append("\nKeep pushing towards the 1,000 zone goal!")
+
+    total_zone_impacts = sum(cg_totals.values())
+    
+    lines.append(f"\n<b>Total Impacts from the Zone:</b> {total_zone_impacts} {impacts_word(total_zone_impacts)}\n")
+    lines.append("Keep pushing towards the 1,000 zone goal!")
 
     await reply(update, "\n".join(lines), parse_mode="HTML")
 
