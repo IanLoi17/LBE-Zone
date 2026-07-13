@@ -564,6 +564,27 @@ def split_two(text):
         parts = [text]
     return [p.strip() for p in parts]
 
+def chunk_message(text, limit=4000):
+    """Split a long HTML message into chunks that fit Telegram's 4096-char limit,
+    breaking on blank lines (between outings) so we never cut an entry in half."""
+    if len(text) <= limit:
+        return [text]
+
+    chunks = []
+    current = ""
+    for block in text.split("\n\n"):
+        candidate = f"{current}\n\n{block}" if current else block
+        if len(candidate) > limit:
+            if current:
+                chunks.append(current)
+            current = block
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+
+    return chunks
+
 def format_initiatives(items):
     """Build a readable display of all initiatives for the admin."""
     lines = [
@@ -599,7 +620,8 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if items:
-        await reply(update, format_initiatives(items), parse_mode="HTML")
+        for chunk in chunk_message(format_initiatives(items)):
+            await reply(update, chunk, parse_mode="HTML")
         return ConversationHandler.END
 
     context.user_data["new_init"] = {}
