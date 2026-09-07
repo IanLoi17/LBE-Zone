@@ -637,6 +637,27 @@ def split_two(text):
         parts = [text]
     return [p.strip() for p in parts]
 
+def chunk_message(text, limit=4000):
+    """Split a long HTML message into chunks that fit Telegram's 4096-char limit,
+    breaking on blank lines (between outings) so we never cut an entry in half."""
+    if len(text) <= limit:
+        return [text]
+
+    chunks = []
+    current = ""
+    for block in text.split("\n\n"):
+        candidate = f"{current}\n\n{block}" if current else block
+        if len(candidate) > limit:
+            if current:
+                chunks.append(current)
+            current = block
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+
+    return chunks
+
 def format_initiatives(items):
     """Build a readable display of all initiatives for the admin, grouped by week
     (current + upcoming first, then past weeks, then anything with a TBC date)."""
