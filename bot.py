@@ -244,6 +244,79 @@ def parse_outing_time(time_str):
 
     return datetime.time.max
 
+def get_week_range(d):
+    """Return (week_start, week_end) for the Sunday-Saturday week containing date d.
+    The very first week of a month is clipped to start on the 1st (so if the 1st
+    falls mid-week, that week is shorter than 7 days) instead of reaching back into
+    the previous month."""
+    days_since_sunday = (d.weekday() + 1) % 7  # Mon=0..Sun=6 -> Sun=0..Sat=6
+    week_start = d - datetime.timedelta(days=days_since_sunday)
+    week_end = week_start + datetime.timedelta(days=6)
+
+    first_of_month = d.replace(day=1)
+    if week_start < first_of_month:
+        week_start = first_of_month
+
+    return week_start, week_end
+
+def format_week_range(week_start, week_end):
+    """'6 - 12 Sep' normally, '30 Aug - 5 Sep' when the week straddles two months."""
+    if week_start.month == week_end.month:
+        return f"{week_start.day} - {week_end.day} {week_end.strftime('%b')}"
+    return f"{week_start.day} {week_start.strftime('%b')} - {week_end.day} {week_end.strftime('%b')}"
+
+def group_initiatives_by_week(items):
+    """Bucket initiatives into (week_start, week_end) groups. Items whose date couldn't
+    be parsed (see parse_outing_date) go into a separate tbc_items list. Returns
+    (upcoming_groups, past_groups, tbc_items) where each group list holds
+    (week_start, week_end, [items]) tuples sorted chronologically."""
+    today = datetime.datetime.now(SGT).date()
+    weeks = {}
+    tbc_items = []
+
+    for item in items:
+        d = parse_outing_date(item["date"])
+        if d == datetime.date.max:
+            tbc_items.append(item)
+            continue
+        key = get_week_range(d)
+        weeks.setdefault(key, []).append(item)
+
+    upcoming, past = [], []
+    for (week_start, week_end), group_items in weeks.items():
+        target = past if week_end < today else upcoming
+        target.append((week_start, week_end, group_items))
+
+    upcoming.sort(key=lambda g: g[0])
+    past.sort(key=lambda g: g[0])
+    return upcoming, past, tbc_items
+
+def build_ordered_sections(items):
+    """Returns the canonical display order used by /initiativelist, /editlist, and
+    /removeinitiative alike, so the numbers a user replies with always mean the same
+    outing everywhere: current + upcoming weeks (soonest first), then past weeks
+    (marked Past), then a Date TBC section at the very bottom. Each section is a
+    dict with a 'label' and its 'items'."""
+    today = datetime.datetime.now(SGT).date()
+    upcoming, past, tbc_items = group_initiatives_by_week(items)
+
+    sections = []
+    for week_start, week_end, group_items in upcoming:
+        is_this_week = week_start <= today <= week_end
+        label = format_week_range(week_start, week_end)
+        if is_this_week:
+            label += " 📍 This Week"
+        sections.append({"label": label, "items": group_items})
+
+    for week_start, week_end, group_items in past:
+        label = f"{format_week_range(week_start, week_end)} ✅ Past"
+        sections.append({"label": label, "items": group_items})
+
+    if tbc_items:
+        sections.append({"label": "📌 Date TBC", "items": tbc_items})
+
+    return sections
+
 def get_all_initiatives():
     """Return a list of initiative dicts from the Initiatives tab (skips the header row).
     Each dict carries row_num = the real sheet row number, for editing cells in place."""
@@ -565,24 +638,54 @@ def split_two(text):
     return [p.strip() for p in parts]
 
 def format_initiatives(items):
-    """Build a readable display of all initiatives for the admin."""
+    """Build a readable display of all initiatives for the admin, grouped by week
+    (current + upcoming first, then past weeks, then anything with a TBC date)."""
+    sections = build_ordered_sections(items)
+
     lines = [
         "📋 <b>WEEKLY INITIATIVES</b>\n",
         "<b>Leading Questions:</b>\n"
         "💭 Who am I putting before myself this week?\n"
-        "💭 How can I make time for this person/these people?\n"
+        "💭 How can I make time for this person/these people?"
         ]
-    for idx, item in enumerate(items, start=1):
-        lines.append(
-            f"<b>{idx}. {html.escape(item['title'])}</b>\n"
-            f"📅 Date: {html.escape(item['date'])}\n"
-            f"⏰ Time: {html.escape(item['time'])}\n"
-            f"📍 Venue: {html.escape(item['venue'])}\n"
-            f"🎯 Purpose: {html.escape(item['purpose'])}\n"
-            f"💥 Impact: {html.escape(item['impact'])}\n"
-            f"👥 People going: {html.escape(item['people'])}"
-        )
+
+    idx = 1
+    for section in sections:
+        lines.append(f"\n<b>🗓 {section['label']}</b>")
+        for item in section["items"]:
+            lines.append(
+                f"<b>{idx}. {html.escape(item['title'])}</b>\n"
+                f"📅 Date: {html.escape(item['date'])}\n"
+                f"⏰ Time: {html.escape(item['time'])}\n"
+                f"📍 Venue: {html.escape(item['venue'])}\n"
+                f"🎯 Purpose: {html.escape(item['purpose'])}\n"
+                f"💥 Impact: {html.escape(item['impact'])}\n"
+                f"👥 People going: {html.escape(item['people'])}"
+            )
+            idx += 1
+
     return "\n\n".join(lines)
+
+def chunk_message(text, limit=4000):
+    """Split a long HTML message into chunks under Telegram's 4096-char cap, breaking
+    on blank lines so an outing (or a week header) never gets cut in half."""
+    if len(text) <= limit:
+        return [text]
+
+    chunks = []
+    current = ""
+    for block in text.split("\n\n"):
+        candidate = f"{current}\n\n{block}" if current else block
+        if len(candidate) > limit:
+            if current:
+                chunks.append(current)
+            current = block
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+
+    return chunks
 
 async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/initiativelist — show outings; if the list is empty, start adding the first one."""
@@ -599,7 +702,8 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if items:
-        await reply(update, format_initiatives(items), parse_mode="HTML")
+        for chunk in chunk_message(format_initiatives(items)):
+            await reply(update, chunk, parse_mode="HTML")
         return ConversationHandler.END
 
     context.user_data["new_init"] = {}
@@ -625,14 +729,21 @@ async def edit_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply(update, "❌ I couldn't read the initiatives sheet. Please try again in a moment.")
         return ConversationHandler.END
 
-    context.user_data["edit_items"] = items
+    sections = build_ordered_sections(items)
+    ordered_items = [item for section in sections for item in section["items"]]
+    context.user_data["edit_items"] = ordered_items
 
     lines = ["✏️ <b>EDIT INITIATIVES</b>\n", "0. ➕ Add a new outing"]
-    for idx, item in enumerate(items, start=1):
-        lines.append(f"{idx}. {html.escape(item['title'])} ({html.escape(item['date'])})")
+    idx = 1
+    for section in sections:
+        lines.append(f"\n<b>🗓 {section['label']}</b>")
+        for item in section["items"]:
+            lines.append(f"{idx}. {html.escape(item['title'])} ({html.escape(item['date'])})")
+            idx += 1
     lines.append("\n<i>Reply with the number you'd like to edit (or 0 to add new). /cancel to exit.</i>")
 
-    await reply(update, "\n".join(lines), parse_mode="HTML")
+    for chunk in chunk_message("\n".join(lines)):
+        await reply(update, chunk, parse_mode="HTML")
     return EDIT_CHOOSE_ROW
 
 async def remove_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -653,14 +764,21 @@ async def remove_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply(update, "📋 There are no outings to remove.")
         return ConversationHandler.END
 
-    context.user_data["remove_items"] = items
+    sections = build_ordered_sections(items)
+    ordered_items = [item for section in sections for item in section["items"]]
+    context.user_data["remove_items"] = ordered_items
 
     lines = ["🗑️ <b>REMOVE AN OUTING</b>\n"]
-    for idx, item in enumerate(items, start=1):
-        lines.append(f"{idx}. {html.escape(item['title'])} ({html.escape(item['date'])})")
+    idx = 1
+    for section in sections:
+        lines.append(f"\n<b>🗓 {section['label']}</b>")
+        for item in section["items"]:
+            lines.append(f"{idx}. {html.escape(item['title'])} ({html.escape(item['date'])})")
+            idx += 1
     lines.append("\n<i>Reply with the number to remove. /cancel to exit.</i>")
 
-    await reply(update, "\n".join(lines), parse_mode="HTML")
+    for chunk in chunk_message("\n".join(lines)):
+        await reply(update, chunk, parse_mode="HTML")
     return REMOVE_INITIATIVE
 
 # --- shared "add an outing" flow (4 prompts) -------------------------------
