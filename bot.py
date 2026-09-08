@@ -246,17 +246,12 @@ def parse_outing_time(time_str):
 
 def get_week_range(d):
     """Return (week_start, week_end) for the Sunday-Saturday week containing date d.
-    The very first week of a month is clipped to start on the 1st (so if the 1st
-    falls mid-week, that week is shorter than 7 days) instead of reaching back into
-    the previous month."""
+    Weeks are continuous all year round and are not clipped at month boundaries, so
+    a week that straddles two months (e.g. 26 Jul - 1 Aug) stays a single bucket
+    instead of being split at the 1st."""
     days_since_sunday = (d.weekday() + 1) % 7  # Mon=0..Sun=6 -> Sun=0..Sat=6
     week_start = d - datetime.timedelta(days=days_since_sunday)
     week_end = week_start + datetime.timedelta(days=6)
-
-    first_of_month = d.replace(day=1)
-    if week_start < first_of_month:
-        week_start = first_of_month
-
     return week_start, week_end
 
 def format_week_range(week_start, week_end):
@@ -637,27 +632,6 @@ def split_two(text):
         parts = [text]
     return [p.strip() for p in parts]
 
-def chunk_message(text, limit=4000):
-    """Split a long HTML message into chunks that fit Telegram's 4096-char limit,
-    breaking on blank lines (between outings) so we never cut an entry in half."""
-    if len(text) <= limit:
-        return [text]
-
-    chunks = []
-    current = ""
-    for block in text.split("\n\n"):
-        candidate = f"{current}\n\n{block}" if current else block
-        if len(candidate) > limit:
-            if current:
-                chunks.append(current)
-            current = block
-        else:
-            current = candidate
-    if current:
-        chunks.append(current)
-
-    return chunks
-
 def format_initiatives(items):
     """Build a readable display of all initiatives for the admin, grouped by week
     (current + upcoming first, then past weeks, then anything with a TBC date)."""
@@ -708,6 +682,26 @@ def chunk_message(text, limit=4000):
 
     return chunks
 
+def build_initiative_pages(items):
+    """Split the full formatted initiative list into pages for the /initiativelist
+    pager. Reuses chunk_message so a page never cuts an outing in half."""
+    return chunk_message(format_initiatives(items))
+
+def pagination_keyboard(page_idx, total_pages):
+    """Build the Prev / page-count / Next inline row for a given page. Returns None
+    when there's only one page (nothing to navigate)."""
+    if total_pages <= 1:
+        return None
+
+    row = []
+    if page_idx > 0:
+        row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"initpage:{page_idx - 1}"))
+    row.append(InlineKeyboardButton(f"{page_idx + 1}/{total_pages}", callback_data="noop"))
+    if page_idx < total_pages - 1:
+        row.append(InlineKeyboardButton("Next ➡️", callback_data=f"initpage:{page_idx + 1}"))
+
+    return InlineKeyboardMarkup([row])
+
 async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/initiativelist — show outings; if the list is empty, start adding the first one."""
     user_id = update.effective_user.id
@@ -723,8 +717,11 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if items:
-        for chunk in chunk_message(format_initiatives(items)):
-            await reply(update, chunk, parse_mode="HTML")
+        pages = build_initiative_pages(items)
+        await reply(
+            update, pages[0], parse_mode="HTML",
+            reply_markup=pagination_keyboard(0, len(pages)),
+        )
         return ConversationHandler.END
 
     context.user_data["new_init"] = {}
@@ -735,6 +732,48 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     return INIT_DATE_TITLE
+
+async def initiative_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the Prev/Next buttons under /initiativelist. Re-reads the sheet fresh
+    each time so a page always reflects the latest data, and edits the existing
+    message in place rather than sending a new one."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if user_id not in PRIVILEGED_USERS:
+        await query.answer("🔒 Admins only.", show_alert=True)
+        return
+
+    try:
+        page_idx = int(query.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    try:
+        items = get_all_initiatives()
+    except Exception as e:
+        print(f"[initpage] could not read Initiatives tab: {e}")
+        await query.answer("❌ Couldn't refresh the list, please try again.", show_alert=True)
+        return
+
+    if not items:
+        await query.edit_message_text("📋 There are no outings anymore. Use /editlist to add one.")
+        return
+
+    pages = build_initiative_pages(items)
+    page_idx = max(0, min(page_idx, len(pages) - 1))  # clamp in case the list shrank
+
+    await query.edit_message_text(
+        pages[page_idx], parse_mode="HTML",
+        reply_markup=pagination_keyboard(page_idx, len(pages)),
+    )
+
+async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """The page-count button ('3/5') isn't clickable — just swallow the tap silently."""
+    await update.callback_query.answer()
 
 async def edit_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/editlist — list outings and ask which to edit, or 0 to add a new one."""
@@ -1343,6 +1382,8 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     app.add_handler(initiative_conversation)
+    app.add_handler(CallbackQueryHandler(initiative_page_callback, pattern="^initpage:"))
+    app.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
 
     verse_conversation = ConversationHandler(
         entry_points=[CommandHandler("verseotw", verseotw_start)],
