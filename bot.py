@@ -64,7 +64,7 @@ ADMIN_COMMANDS = PUBLIC_COMMANDS + [
     BotCommand("initiativelist", "View weekly outings"),
     BotCommand("editlist", "Add or edit an outing"),
     BotCommand("removeinitiative", "Remove an outing"),
-    BotCommand("verseotw", "Set or edit the Verse of the Week"),
+    BotCommand("verseotw", "Send a verse of encouragement to everyone"),
     BotCommand("announce", "Send an announcement to everyone"),
     BotCommand("leaderboard", "Top CGs ranked by impacts"),
     BotCommand("cgbreakdown", "Individual breakdown by CG"),
@@ -390,16 +390,6 @@ def remove_initiative_row(row_num):
             if row[0] != str(new_id):
                 sheet.update_cell(i, 1, str(new_id))
 
-def get_verseotw():
-    """Read the current Verse of the Week from cell A1 of the Verse Of The Week tab."""
-    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
-    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(SHEET_ID).worksheet("Verse Of The Week")
-    value = sheet.acell("A1").value
-
-    return value.strip() if value else ""
-
 def set_verse(verse):
     """Set a new Verse in cell A1 of the Verse Of The Week tab."""
     creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
@@ -414,6 +404,7 @@ EDIT_CHOOSE_ROW, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE = range(10, 13)
 REMOVE_INITIATIVE = 13
 ASK_VERSE_OTW = 14
 ASK_ANNOUNCE, CONFIRM_ANNOUNCE = range(15, 17)
+CONFIRM_VERSE = 17
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -1005,61 +996,91 @@ async def remove_initiative(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def verseotw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/verseotw for admin to set for the upcoming week"""
+    """/verseotw — admin types a verse of encouragement and sends it to everyone now."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
         await reply(update, "🔒 Oops! This command is for Admins.")
         return ConversationHandler.END
 
     await reply(update, 
-        "📖 Send me the <b>Verse of the Week</b>.\n\n"
+        "📖 What <b>verse of encouragement</b> would you like to send to everyone?\n\n"
         "<i>For example:\n1 John 4:7 (NIV): — Dear friends, let us love one another, for love comes from God. Everyone who loves has been born of God and knows God.</i>\n\n"
-        "To change the verse later, just run the command /verseotw again.\n"
-        "Or /cancel to keep the current one.",
+        "Type it out, or /cancel to stop.",
         parse_mode="HTML"
     )
 
     return ASK_VERSE_OTW
 
 async def receive_verseotw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Save the Verse of the week to the google sheets."""
+    """Store the verse and show a preview to confirm before sending it out."""
     verseotw = update.message.text.strip()
-    try:
-        set_verse(verseotw)
-        await reply(update, 
-            "✅ Verse of the Week saved!\n\n"
-            f"📖 This week's verse: {html.escape(verseotw)}",
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        print(f"[error] could not save verse: {e}")
-        await reply(update, "❌ I couldn't save that. Please try /verseotw again in a moment.")
-
-    return ConversationHandler.END
-
-async def post_verseotw(context: ContextTypes.DEFAULT_TYPE):
-    """JobQueue callback - runs Monday and DMs the verse to every registered user."""
-    try:
-        verseotw = get_verseotw()
-    except Exception as e:
-        print(f"[verseotw] could not read verse of the week: {e}")
-        return
-
-    if not verseotw:
-        print("[verseotw] no verse of the week set.")
-        return
+    context.user_data["verseotw_text"] = verseotw
 
     try:
         users = get_all_users()
     except Exception as e:
         print(f"[verseotw] could not read users: {e}")
-        return
+        await reply(update, "❌ I couldn't read the user list. Please try /verseotw again in a moment.")
+        return ConversationHandler.END
+
+    recipient_count = len({user["id"] for user in users})
+
+    preview = (
+        "📖 <b>VERSE OF THE WEEK</b> 🌱\n\n"
+        f"{html.escape(verseotw)}\n\n"
+        "<i>Stay encouraged, and keep making an impact this week! 🛟</i>"
+    )
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(f"📤 Send to all {recipient_count}", callback_data="verse_send"),
+            InlineKeyboardButton("❌ Cancel", callback_data="verse_cancel"),
+        ]
+    ])
+
+    try:
+        await reply(update, 
+            f"{preview}\n\n———\n<i>Preview above. Send this to everyone?</i>",
+            parse_mode="HTML",
+            reply_markup=buttons,
+        )
+    except Exception as e:
+        print(f"[verseotw] preview failed (likely bad formatting): {e}")
+        await reply(update, 
+            "❌ I couldn't format that message — please try sending it again."
+        )
+        return ASK_VERSE_OTW
+
+    return CONFIRM_VERSE
+
+async def verse_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast the verse of encouragement to every registered user right now."""
+    query = update.callback_query
+    await query.answer()
+
+    verseotw = context.user_data.get("verseotw_text", "")
+    if not verseotw:
+        await query.edit_message_text("Nothing to send.")
+        return ConversationHandler.END
+
+    try:
+        users = get_all_users()
+    except Exception as e:
+        print(f"[verseotw] could not read users: {e}")
+        await query.edit_message_text("❌ I couldn't read the user list. Please try /verseotw again.")
+        return ConversationHandler.END
 
     message = (
         "📖 <b>VERSE OF THE WEEK</b> 🌱\n\n"
         f"{html.escape(verseotw)}\n\n"
         "<i>Stay encouraged, and keep making an impact this week! 🛟</i>"
     )
+    await query.edit_message_text("📤 Sending verse of encouragement...")
+
+    # Keep a record of the last verse sent, purely for reference in the sheet.
+    try:
+        set_verse(verseotw)
+    except Exception as e:
+        print(f"[verseotw] could not log verse to sheet: {e}")
 
     sent, failed = 0, 0
     seen_ids = set()
@@ -1080,7 +1101,21 @@ async def post_verseotw(context: ContextTypes.DEFAULT_TYPE):
 
         await asyncio.sleep(0.05)
 
-    print(f"[verseotw] weekly verse sent to {sent} user(s); {failed} failed.")
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text=f"✅ Verse sent to {sent} people. ({failed} couldn't be reached.)"
+    )
+
+    context.user_data.pop("verseotw_text", None)
+    return ConversationHandler.END
+
+async def verse_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Abort sending the verse without sending anything."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data.pop("verseotw_text", None)
+    await query.edit_message_text("Verse cancelled. Nothing was sent.")
+    return ConversationHandler.END
 
 async def announce_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/announce command for Zone admins only. Sends a one-off announcement to every registered user."""
@@ -1301,7 +1336,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/initiativelist — 📋 View weekly outings (or add the first if empty)\n"
             "/editlist — ✏️ Add or edit an outing\n"
             "/removeinitiative — 🗑️ Remove an outing\n"
-            "/verseotw — 📖 Set or edit the Verse of the Week\n"
+            "/verseotw — 📖 Send a verse of encouragement to everyone\n"
             "/announce — 📢 Send an announcement to everyone\n"
             "/leaderboard — 🏆 Top CGs ranked by impacts\n"
             "/cgbreakdown — 👥 Individual breakdown by CG"
@@ -1389,6 +1424,10 @@ def main():
         entry_points=[CommandHandler("verseotw", verseotw_start)],
         states={
             ASK_VERSE_OTW: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_verseotw)],
+            CONFIRM_VERSE: [
+                CallbackQueryHandler(verse_send, pattern="^verse_send$"),
+                CallbackQueryHandler(verse_cancel, pattern="^verse_cancel$"),
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -1411,15 +1450,6 @@ def main():
     app.add_handler(CommandHandler("leaderboard", leaderboard))
     app.add_handler(CommandHandler("cgbreakdown", cg_breakdown))
     app.add_handler(CommandHandler("help", help_command))
-
-    # Weekly Verse of the Week — sent every Monday at 12:00 noon SGT.
-    # In PTB v20+, days use 0=Sunday..6=Saturday, so Monday = 1.
-    app.job_queue.run_daily(
-        post_verseotw,
-        time=datetime.time(hour=12, minute=0, tzinfo=SGT),
-        days=(1,),
-        name="verse_of_the_week"
-    )
 
     print("Bot is running...")
     app.run_polling()
