@@ -1239,6 +1239,21 @@ async def announce_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("Announcement cancelled. Nothing was sent.")
     return ConversationHandler.END
 
+async def fetch_with_retry(fn, *args, retries=2, delay=1.5, **kwargs):
+    """Call a Sheets-reading function, retrying once after a short pause if it raises.
+    Absorbs transient hiccups (rate limits, brief network blips) without surfacing
+    an error to the user on the first failure."""
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            last_exc = e
+            print(f"[retry] {getattr(fn, '__name__', fn)} failed (attempt {attempt + 1}/{retries}): {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
+    raise last_exc
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/stats — combined Zone milestones, leaderboard, and CG breakdown (admins only)."""
     user_id = update.effective_user.id
@@ -1247,11 +1262,11 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        users = get_all_users()
-        counts = get_impact_counts()
-        total = get_total_impacts()
+        users = await fetch_with_retry(get_all_users)
+        counts = await fetch_with_retry(get_impact_counts)
+        total = await fetch_with_retry(get_total_impacts)
     except Exception as e:
-        print(f"[stats] could not read data: {e}")
+        print(f"[stats] could not read data after retry: {e}")
         await reply(update, "❌ I couldn't load the stats right now. Please try again in a moment.")
         return
 
@@ -1291,9 +1306,13 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines.append("\n🏆 <b>ZONE LEADERBOARD</b>")
     medals = ["🥇", "🥈", "🥉"]
+    keycap_ranks = {4: "4️⃣", 5: "5️⃣", 6: "6️⃣", 7: "7️⃣", 8: "8️⃣", 9: "9️⃣", 10: "🔟"}
     leader_total = ranked[0][1] if ranked else 0
     for rank, (cg, cg_total) in enumerate(ranked, start=1):
-        prefix = medals[rank - 1] if rank <= 3 else f"{rank}."
+        if rank <= 3:
+            prefix = medals[rank - 1]
+        else:
+            prefix = keycap_ranks.get(rank, f"{rank}.")
         line = f"{prefix} {html.escape(cg)} — {cg_total} {impacts_word(cg_total)}"
         if rank > 1 and leader_total > cg_total:
             line += f" <i>({leader_total - cg_total} behind 🥇)</i>"
