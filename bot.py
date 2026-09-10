@@ -55,7 +55,6 @@ PUBLIC_COMMANDS = [
     BotCommand("start", "Register and set your goal"),
     BotCommand("impact", "Log an impact you made for someone"),
     BotCommand("setgoal", "Update your goal"),
-    BotCommand("milestones", "See our progress towards 1000"),
     BotCommand("help", "Show all available commands"),
     BotCommand("cancel", "Cancel whatever's in progress"),
 ]
@@ -66,8 +65,7 @@ ADMIN_COMMANDS = PUBLIC_COMMANDS + [
     BotCommand("removeinitiative", "Remove an outing"),
     BotCommand("verseotw", "Send a verse of encouragement to everyone"),
     BotCommand("announce", "Send an announcement to everyone"),
-    BotCommand("leaderboard", "Top CGs ranked by impacts"),
-    BotCommand("cgbreakdown", "Individual breakdown by CG"),
+    BotCommand("stats", "Zone milestones, leaderboard & CG breakdown"),
 ]
 
 def keyboard_for(id):
@@ -135,6 +133,16 @@ def get_total_impacts():
 def impacts_word(impact_count):
     """Returns the correct singular/plural form of "impact" for a given count."""
     return "impact" if impact_count == 1 else "impacts"
+
+MILESTONE_STEPS = [
+    (50, "🙏🏻"), (100, "✨"), (200, "🔥"), (350, "📛"),
+    (500, "🧨"), (650, "💥"), (800, "🎆"), (1000, "🏁"),
+]
+
+def build_progress_bar(percent, length=10):
+    """Renders a simple block progress bar, e.g. '███████░░░ 70%'."""
+    filled = max(0, min(length, round(length * percent / 100)))
+    return "█" * filled + "░" * (length - filled)
 
 def get_impact_counts():
     """Returns {telegram_id (str): impact_count} for everyone, reading the Impacts tab once."""
@@ -478,7 +486,7 @@ async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply(update, 
             "✅ Saved. 🎯 GOAL LOCKED IN!\n\n"
             "Go out there and change lives!\n\n"
-            "Use /impact to log an impact <i>(anytime, anywhere)</i> and /milestones to see what we're running towards as a Zone!\n\n"
+            "Use /impact to log an impact <i>(anytime, anywhere)</i> and start making a difference!\n\n"
             "Pro-Tip: Use /help to see all other available commands!",
             parse_mode="HTML",
             reply_markup=keyboard_for(user_id)
@@ -548,7 +556,7 @@ async def confirm_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🙌 AMAZING! That's another impact made this week!\n\n"
             f"{stats_line}\n\n"
-            "Use /milestones to see how far we've come."
+            "Keep going — every impact counts!"
         )
 
     except Exception as e:
@@ -1231,88 +1239,88 @@ async def announce_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("Announcement cancelled. Nothing was sent.")
     return ConversationHandler.END
 
-async def milestones(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Shows the live total progress towards 1000 impacts"""
-    total = get_total_impacts()
-    percent = round(total / 1000 * 100)
-
-    milestone_text = (
-        "🏁 <b>Goal: 1000 Impacts</b>\n\n"
-        f"➡️ <i>Current Progress: {total}/1000 ({percent}%)</i>\n\n"
-        "Milestones:\n"
-        "50 Impacts: 🙏🏻\n"
-        "100 Impacts: ✨\n"
-        "200 Impacts: 🔥\n"
-        "350 Impacts: 📛\n"
-        "500 Impacts: 🧨\n"
-        "650 Impacts: 💥\n"
-        "800 Impacts: 🎆\n"
-        "1000 Impacts: 🏁"
-    )
-
-    await reply(update, milestone_text, parse_mode="HTML")
-
-async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays overall zone rankings to authorized users only."""
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/stats — combined Zone milestones, leaderboard, and CG breakdown (admins only)."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
         await reply(update, "🔒 Oops! This command is for Admins.")
         return
 
-    users = get_all_users()
-    counts = get_impact_counts()
-
-    if not users:
-        await reply(update, "No data yet — no one has registered.")
+    try:
+        users = get_all_users()
+        counts = get_impact_counts()
+        total = get_total_impacts()
+    except Exception as e:
+        print(f"[stats] could not read data: {e}")
+        await reply(update, "❌ I couldn't load the stats right now. Please try again in a moment.")
         return
 
+    lines = []
+
+    # --- Milestones ---
+    percent = min(100, round(total / 1000 * 100)) if total else 0
+    bar = build_progress_bar(percent)
+    next_milestone = next((m for m, _ in MILESTONE_STEPS if total < m), None)
+
+    lines.append("🏁 <b>ZONE MILESTONES</b>")
+    lines.append(f"{bar}  {percent}%")
+    lines.append(f"<b>{total} / 1000</b> impacts made")
+
+    if next_milestone:
+        remaining = next_milestone - total
+        lines.append(f"🚀 Just {remaining} more {impacts_word(remaining)} to the next milestone!")
+    else:
+        lines.append("🎉 Every milestone unlocked — incredible work, Zone!")
+
+    milestone_line = " ".join(
+        f"{'✅' if total >= m else '⬜'} {m}{emoji}" for m, emoji in MILESTONE_STEPS
+    )
+    lines.append(milestone_line)
+
+    if not users:
+        lines.append("\nNo data yet — no one has registered.")
+        for chunk in chunk_message("\n".join(lines)):
+            await reply(update, chunk, parse_mode="HTML")
+        return
+
+    # --- Leaderboard (by CG) ---
     cg_totals = {}
     for user in users:
         cg_totals[user["cg"]] = cg_totals.get(user["cg"], 0) + counts.get(user["id"], 0)
-
     ranked = sorted(cg_totals.items(), key=lambda item: item[1], reverse=True)
 
-    lines = ["🏆 <b>ZONE LEADERBOARD</b> 🏆\n"]
-    for rank, (cg, total) in enumerate(ranked, start=1):
-        lines.append(f"{rank}. {html.escape(cg)} — {total} {impacts_word(total)}")
+    lines.append("\n🏆 <b>ZONE LEADERBOARD</b>")
+    medals = ["🥇", "🥈", "🥉"]
+    leader_total = ranked[0][1] if ranked else 0
+    for rank, (cg, cg_total) in enumerate(ranked, start=1):
+        prefix = medals[rank - 1] if rank <= 3 else f"{rank}."
+        line = f"{prefix} {html.escape(cg)} — {cg_total} {impacts_word(cg_total)}"
+        if rank > 1 and leader_total > cg_total:
+            line += f" <i>({leader_total - cg_total} behind 🥇)</i>"
+        lines.append(line)
 
     total_zone_impacts = sum(cg_totals.values())
-    
-    lines.append(f"\n<b>Total Impacts from the Zone:</b> {total_zone_impacts} {impacts_word(total_zone_impacts)}\n")
-    lines.append("Keep pushing towards the 1,000 zone goal!")
+    lines.append(
+        f"\n<b>Zone total:</b> {total_zone_impacts} {impacts_word(total_zone_impacts)} "
+        "— keep pushing towards 1,000! 🔥"
+    )
 
-    await reply(update, "\n".join(lines), parse_mode="HTML")
-
-async def cg_breakdown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays individual breakdown to authorized users only."""
-    user_id = update.effective_user.id
-    if user_id not in PRIVILEGED_USERS:
-        await reply(update, "🔒 Oops! This command is for Admins.")
-        return
-
-    users = get_all_users()
-    counts = get_impact_counts()
-
-    if not users:
-        await reply(update, "No data yet — no one has registered.")
-        return
-
+    # --- CG breakdown (individuals) ---
     cg_members = {}
     for user in users:
         cg_members.setdefault(user["cg"], []).append(user)
 
-    lines = ["👥 <b>CG BREAKDOWN</b>\n"]
+    lines.append("\n👥 <b>CG BREAKDOWN</b>")
     for cg in sorted(cg_members.keys()):
-        lines.append(f"<b>{html.escape(cg)}</b>")
+        lines.append(f"\n<b>{html.escape(cg)}</b>")
         members = sorted(cg_members[cg], key=lambda u: counts.get(u["id"], 0), reverse=True)
-
-        for user in members:
+        for idx, user in enumerate(members):
             count = counts.get(user["id"], 0)
-            lines.append(f"• {html.escape(user['name'])}: {count}")
+            crown = " 👑" if idx == 0 and count > 0 else ""
+            lines.append(f"• {html.escape(user['name'])}: {count}{crown}")
 
-        lines.append("")
-
-    await reply(update, "\n".join(lines), parse_mode="HTML")
+    for chunk in chunk_message("\n".join(lines)):
+        await reply(update, chunk, parse_mode="HTML")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shows the available commands. Leader commands only show for privileged users."""
@@ -1324,7 +1332,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start — 🔥 Register and set your goal\n"
         "/impact — 🙌 Log an impact you made for someone\n"
         "/setgoal — 🎯 Update your goal\n"
-        "/milestones — 🏁 See our progress towards 1000\n"
         "/cancel — ❌ Cancel whatever's in progress\n"
         "/help — ℹ️ Show all available commands"
     )
@@ -1338,8 +1345,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/removeinitiative — 🗑️ Remove an outing\n"
             "/verseotw — 📖 Send a verse of encouragement to everyone\n"
             "/announce — 📢 Send an announcement to everyone\n"
-            "/leaderboard — 🏆 Top CGs ranked by impacts\n"
-            "/cgbreakdown — 👥 Individual breakdown by CG"
+            "/stats — 📊 Zone milestones, leaderboard & CG breakdown"
         )
 
     await reply(update, help_text, parse_mode="HTML")
@@ -1446,9 +1452,7 @@ def main():
     )
     app.add_handler(announce_conversation)
 
-    app.add_handler(CommandHandler("milestones", milestones))
-    app.add_handler(CommandHandler("leaderboard", leaderboard))
-    app.add_handler(CommandHandler("cgbreakdown", cg_breakdown))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("help", help_command))
 
     print("Bot is running...")
