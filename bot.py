@@ -36,7 +36,8 @@ PRIVILEGED_USERS = {
     272782991,
     63561597,
     235735470,
-    25526066
+    25526066,
+    24605027
 }
 
 SGT = ZoneInfo("Asia/Singapore")
