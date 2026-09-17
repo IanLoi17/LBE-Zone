@@ -64,7 +64,7 @@ ADMIN_COMMANDS = PUBLIC_COMMANDS + [
     BotCommand("initiativelist", "View weekly outings"),
     BotCommand("editlist", "Add or edit an outing"),
     BotCommand("removeinitiative", "Remove an outing"),
-    BotCommand("verseotw", "Send a verse of encouragement to everyone"),
+    BotCommand("encourage", "Send a word of encouragement to everyone"),
     BotCommand("announce", "Send an announcement to everyone"),
     BotCommand("stats", "Zone milestones, leaderboard & CG breakdown"),
 ]
@@ -411,9 +411,9 @@ ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL, ASK_CG, CONFIRM_IMPACT = range(6)
 INIT_DATE_TITLE, INIT_PURPOSE_IMPACT, INIT_TIME_VENUE, INIT_PEOPLE = range(6, 10)
 EDIT_CHOOSE_ROW, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE = range(10, 13)
 REMOVE_INITIATIVE = 13
-ASK_VERSE_OTW = 14
+ASK_ENCOURAGE = 14
 ASK_ANNOUNCE, CONFIRM_ANNOUNCE = range(15, 17)
-CONFIRM_VERSE = 17
+CONFIRM_ENCOURAGE = 17
 
 web_app = Flask(__name__)
 @web_app.route("/")
@@ -649,13 +649,9 @@ def format_initiatives(items):
         lines.append(f"\n<b>🗓 {section['label']}</b>")
         for item in section["items"]:
             lines.append(
-                f"<b>{idx}. {html.escape(item['title'])}</b>\n"
-                f"📅 Date: {html.escape(item['date'])}\n"
-                f"⏰ Time: {html.escape(item['time'])}\n"
-                f"📍 Venue: {html.escape(item['venue'])}\n"
-                f"🎯 Purpose: {html.escape(item['purpose'])}\n"
-                f"💥 Impact: {html.escape(item['impact'])}\n"
-                f"👥 People going: {html.escape(item['people'])}"
+                f"<b>{idx}.</b> 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}\n"
+                f"🤝 {html.escape(item['title'])}\n"
+                f"👥 {html.escape(item['people'])}"
             )
             idx += 1
 
@@ -1004,45 +1000,45 @@ async def remove_initiative(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
-async def verseotw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/verseotw — admin types a verse of encouragement and sends it to everyone now."""
+async def encourage_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/encourage — admin types a word of encouragement and sends it to everyone now."""
     user_id = update.effective_user.id
     if user_id not in PRIVILEGED_USERS:
         await reply(update, "🔒 Oops! This command is for Admins.")
         return ConversationHandler.END
 
     await reply(update, 
-        "📖 What <b>verse of encouragement</b> would you like to send to everyone?\n\n"
-        "<i>For example:\n1 John 4:7 (NIV): — Dear friends, let us love one another, for love comes from God. Everyone who loves has been born of God and knows God.</i>\n\n"
+        "🌱 What <b>word of encouragement</b> would you like to send to everyone?\n\n"
+        "<i>Could be a verse, a quote, or just something encouraging in your own words. For example:\n1 John 4:7 (NIV): — Dear friends, let us love one another, for love comes from God. Everyone who loves has been born of God and knows God.</i>\n\n"
         "Type it out, or /cancel to stop.",
         parse_mode="HTML"
     )
 
-    return ASK_VERSE_OTW
+    return ASK_ENCOURAGE
 
-async def receive_verseotw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Store the verse and show a preview to confirm before sending it out."""
-    verseotw = update.message.text.strip()
-    context.user_data["verseotw_text"] = verseotw
+async def receive_encourage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Store the message and show a preview to confirm before sending it out."""
+    encouragement = update.message.text.strip()
+    context.user_data["encourage_text"] = encouragement
 
     try:
         users = get_all_users()
     except Exception as e:
-        print(f"[verseotw] could not read users: {e}")
-        await reply(update, "❌ I couldn't read the user list. Please try /verseotw again in a moment.")
+        print(f"[encourage] could not read users: {e}")
+        await reply(update, "❌ I couldn't read the user list. Please try /encourage again in a moment.")
         return ConversationHandler.END
 
     recipient_count = len({user["id"] for user in users})
 
     preview = (
-        "📖 <b>VERSE OF THE WEEK</b> 🌱\n\n"
-        f"{html.escape(verseotw)}\n\n"
+        "🌱 <b>WORD OF ENCOURAGEMENT</b>\n\n"
+        f"{html.escape(encouragement)}\n\n"
         "<i>Stay encouraged, and keep making an impact this week! 🛟</i>"
     )
     buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(f"📤 Send to all {recipient_count}", callback_data="verse_send"),
-            InlineKeyboardButton("❌ Cancel", callback_data="verse_cancel"),
+            InlineKeyboardButton(f"📤 Send to all {recipient_count}", callback_data="encourage_send"),
+            InlineKeyboardButton("❌ Cancel", callback_data="encourage_cancel"),
         ]
     ])
 
@@ -1053,43 +1049,43 @@ async def receive_verseotw(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=buttons,
         )
     except Exception as e:
-        print(f"[verseotw] preview failed (likely bad formatting): {e}")
+        print(f"[encourage] preview failed (likely bad formatting): {e}")
         await reply(update, 
             "❌ I couldn't format that message — please try sending it again."
         )
-        return ASK_VERSE_OTW
+        return ASK_ENCOURAGE
 
-    return CONFIRM_VERSE
+    return CONFIRM_ENCOURAGE
 
-async def verse_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Broadcast the verse of encouragement to every registered user right now."""
+async def encourage_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Broadcast the word of encouragement to every registered user right now."""
     query = update.callback_query
     await query.answer()
 
-    verseotw = context.user_data.get("verseotw_text", "")
-    if not verseotw:
+    encouragement = context.user_data.get("encourage_text", "")
+    if not encouragement:
         await query.edit_message_text("Nothing to send.")
         return ConversationHandler.END
 
     try:
         users = get_all_users()
     except Exception as e:
-        print(f"[verseotw] could not read users: {e}")
-        await query.edit_message_text("❌ I couldn't read the user list. Please try /verseotw again.")
+        print(f"[encourage] could not read users: {e}")
+        await query.edit_message_text("❌ I couldn't read the user list. Please try /encourage again.")
         return ConversationHandler.END
 
     message = (
-        "📖 <b>VERSE OF THE WEEK</b> 🌱\n\n"
-        f"{html.escape(verseotw)}\n\n"
+        "🌱 <b>WORD OF ENCOURAGEMENT</b>\n\n"
+        f"{html.escape(encouragement)}\n\n"
         "<i>Stay encouraged, and keep making an impact this week! 🛟</i>"
     )
-    await query.edit_message_text("📤 Sending verse of encouragement...")
+    await query.edit_message_text("📤 Sending word of encouragement...")
 
-    # Keep a record of the last verse sent, purely for reference in the sheet.
+    # Keep a record of the last message sent, purely for reference in the sheet.
     try:
-        set_verse(verseotw)
+        set_verse(encouragement)
     except Exception as e:
-        print(f"[verseotw] could not log verse to sheet: {e}")
+        print(f"[encourage] could not log to sheet: {e}")
 
     sent, failed = 0, 0
     seen_ids = set()
@@ -1106,24 +1102,24 @@ async def verse_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             # Most common cause: the user blocked the bot or never started a chat with it.
             failed += 1
-            print(f"[verseotw] could not DM {user_id}: {e}")
+            print(f"[encourage] could not DM {user_id}: {e}")
 
         await asyncio.sleep(0.05)
 
     await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text=f"✅ Verse sent to {sent} people. ({failed} couldn't be reached.)"
+        text=f"✅ Sent to {sent} people. ({failed} couldn't be reached.)"
     )
 
-    context.user_data.pop("verseotw_text", None)
+    context.user_data.pop("encourage_text", None)
     return ConversationHandler.END
 
-async def verse_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Abort sending the verse without sending anything."""
+async def encourage_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Abort sending the message without sending anything."""
     query = update.callback_query
     await query.answer()
-    context.user_data.pop("verseotw_text", None)
-    await query.edit_message_text("Verse cancelled. Nothing was sent.")
+    context.user_data.pop("encourage_text", None)
+    await query.edit_message_text("Cancelled. Nothing was sent.")
     return ConversationHandler.END
 
 async def announce_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1363,7 +1359,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/initiativelist — 📋 View weekly outings (or add the first if empty)\n"
             "/editlist — ✏️ Add or edit an outing\n"
             "/removeinitiative — 🗑️ Remove an outing\n"
-            "/verseotw — 📖 Send a verse of encouragement to everyone\n"
+            "/encourage — 🌱 Send a word of encouragement to everyone\n"
             "/announce — 📢 Send an announcement to everyone\n"
             "/stats — 📊 Zone milestones, leaderboard & CG breakdown"
         )
@@ -1446,18 +1442,18 @@ def main():
     app.add_handler(CallbackQueryHandler(initiative_page_callback, pattern="^initpage:"))
     app.add_handler(CallbackQueryHandler(noop_callback, pattern="^noop$"))
 
-    verse_conversation = ConversationHandler(
-        entry_points=[CommandHandler("verseotw", verseotw_start)],
+    encourage_conversation = ConversationHandler(
+        entry_points=[CommandHandler("encourage", encourage_start)],
         states={
-            ASK_VERSE_OTW: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_verseotw)],
-            CONFIRM_VERSE: [
-                CallbackQueryHandler(verse_send, pattern="^verse_send$"),
-                CallbackQueryHandler(verse_cancel, pattern="^verse_cancel$"),
+            ASK_ENCOURAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_encourage)],
+            CONFIRM_ENCOURAGE: [
+                CallbackQueryHandler(encourage_send, pattern="^encourage_send$"),
+                CallbackQueryHandler(encourage_cancel, pattern="^encourage_cancel$"),
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-    app.add_handler(verse_conversation)
+    app.add_handler(encourage_conversation)
 
     announce_conversation = ConversationHandler(
         entry_points=[CommandHandler("announce", announce_start)],
