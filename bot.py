@@ -649,9 +649,10 @@ def format_initiatives(items):
         lines.append(f"\n<b>🗓 {section['label']}</b>")
         for item in section["items"]:
             lines.append(
-                f"<b>{idx}.</b> 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}\n"
-                f"🤝 {html.escape(item['title'])}\n"
-                f"👥 {html.escape(item['people'])}"
+                f"<b>{idx}.</b>\n"
+                f"Date/Time/Venue: 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}\n"
+                f"Hanging out with: 🤝 {html.escape(item['title'])}\n"
+                f"People going: 👥 {html.escape(item['people'])}"
             )
             idx += 1
 
@@ -678,10 +679,12 @@ def chunk_message(text, limit=4000):
 
     return chunks
 
-def build_initiative_pages(items):
+def build_initiative_pages(items, page_limit=1500):
     """Split the full formatted initiative list into pages for the /initiativelist
-    pager. Reuses chunk_message so a page never cuts an outing in half."""
-    return chunk_message(format_initiatives(items))
+    pager. Reuses chunk_message so a page never cuts an outing in half. Uses a
+    smaller limit than chunk_message's default so pages stay short and readable,
+    rather than only splitting once Telegram's 4096-char cap is hit."""
+    return chunk_message(format_initiatives(items), limit=page_limit)
 
 def pagination_keyboard(page_idx, total_pages):
     """Build the Prev / page-count / Next inline row for a given page. Returns None
