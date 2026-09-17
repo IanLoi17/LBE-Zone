@@ -632,31 +632,40 @@ def split_two(text):
         parts = [text]
     return [p.strip() for p in parts]
 
+def format_section(section, start_idx):
+    """Render one week's header + its outings as a single block of text. Returns
+    (block_text, next_idx) so numbering continues correctly across sections."""
+    lines = [f"<b>🗓 {section['label']}</b>"]
+    idx = start_idx
+    for item in section["items"]:
+        lines.append(
+            f"<b>{idx}.</b>\n"
+            f"Date/Time/Venue: 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}\n"
+            f"Hanging out with: 🤝 {html.escape(item['title'])}\n"
+            f"People going: 👥 {html.escape(item['people'])}"
+        )
+        idx += 1
+    return "\n\n".join(lines), idx
+
 def format_initiatives(items):
     """Build a readable display of all initiatives for the admin, grouped by week
     (current + upcoming first, then past weeks, then anything with a TBC date)."""
     sections = build_ordered_sections(items)
 
-    lines = [
-        "📋 <b>WEEKLY INITIATIVES</b>\n",
+    intro = (
+        "📋 <b>WEEKLY INITIATIVES</b>\n\n"
         "<b>Leading Questions:</b>\n"
         "💭 Who am I putting before myself this week?\n"
         "💭 How can I make time for this person/these people?"
-        ]
+    )
 
+    blocks = [intro]
     idx = 1
     for section in sections:
-        lines.append(f"\n<b>🗓 {section['label']}</b>")
-        for item in section["items"]:
-            lines.append(
-                f"<b>{idx}.</b>\n"
-                f"Date/Time/Venue: 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}\n"
-                f"Hanging out with: 🤝 {html.escape(item['title'])}\n"
-                f"People going: 👥 {html.escape(item['people'])}"
-            )
-            idx += 1
+        block, idx = format_section(section, idx)
+        blocks.append(block)
 
-    return "\n\n".join(lines)
+    return "\n\n".join(blocks)
 
 def chunk_message(text, limit=4000):
     """Split a long HTML message into chunks under Telegram's 4096-char cap, breaking
@@ -680,11 +689,43 @@ def chunk_message(text, limit=4000):
     return chunks
 
 def build_initiative_pages(items, page_limit=1500):
-    """Split the full formatted initiative list into pages for the /initiativelist
-    pager. Reuses chunk_message so a page never cuts an outing in half. Uses a
-    smaller limit than chunk_message's default so pages stay short and readable,
-    rather than only splitting once Telegram's 4096-char cap is hit."""
-    return chunk_message(format_initiatives(items), limit=page_limit)
+    """Build /initiativelist pages so a week's outings are never split across two
+    pages — each week's header and all its outings always stay together on the
+    same page. Packs as many whole weeks as fit under page_limit; if a single
+    week alone is bigger than page_limit, it still gets shown in full on its own
+    page rather than being cut (Telegram's real hard cap is 4096, much higher)."""
+    sections = build_ordered_sections(items)
+
+    intro = (
+        "📋 <b>WEEKLY INITIATIVES</b>\n\n"
+        "<b>Leading Questions:</b>\n"
+        "💭 Who am I putting before myself this week?\n"
+        "💭 How can I make time for this person/these people?"
+    )
+
+    if not sections:
+        return [intro]
+
+    week_blocks = []
+    idx = 1
+    for section in sections:
+        block, idx = format_section(section, idx)
+        week_blocks.append(block)
+
+    pages = []
+    current = intro
+    is_first_block = True
+    for block in week_blocks:
+        candidate = f"{current}\n\n{block}"
+        if len(candidate) > page_limit and not is_first_block:
+            pages.append(current)
+            current = block
+        else:
+            current = candidate
+        is_first_block = False
+    pages.append(current)
+
+    return pages
 
 def pagination_keyboard(page_idx, total_pages):
     """Build the Prev / page-count / Next inline row for a given page. Returns None
