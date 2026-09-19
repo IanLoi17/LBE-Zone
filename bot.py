@@ -656,11 +656,11 @@ def format_section(section, start_idx):
     for item in section["items"]:
         contact = extract_contact_name(item["title"])
         detail_lines = [
-            f"↳ Date/Time/Venue: 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}",
+            f"Date/Time/Venue: 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}",
         ]
         if contact:
-            detail_lines.append(f"↳ Hanging out with: 🤝 {html.escape(contact)}")
-        detail_lines.append(f"↳ People going: 👥 {html.escape(item['people'])}")
+            detail_lines.append(f"Hanging out with: 🤝 {html.escape(contact)}")
+        detail_lines.append(f"People going: 👥 {html.escape(item['people'])}")
 
         lines.append(
             f"<b>{idx}. Outing:</b> 🤝 {html.escape(item['title'])}\n" + "\n".join(detail_lines)
@@ -709,10 +709,12 @@ def chunk_message(text, limit=4000):
 
     return chunks
 
-def build_initiative_pages(items):
-    """Build /initiativelist pages with exactly one week per page — never combining
-    multiple weeks onto the same page, even if a week is short, and never splitting
-    a single week's outings across two pages."""
+def build_initiative_pages(items, max_per_page=5):
+    """Build /initiativelist pages by packing whole weeks together, up to
+    max_per_page outings per page — never splitting a single week's outings
+    across two pages, but combining smaller weeks so a page doesn't end up with
+    just 1-2 outings on it. A week bigger than max_per_page on its own still
+    gets shown in full on its own page rather than being split."""
     sections = build_ordered_sections(items)
 
     intro = (
@@ -726,11 +728,27 @@ def build_initiative_pages(items):
         return [intro]
 
     pages = []
+    current_blocks = []
+    current_count = 0
     idx = 1
-    for i, section in enumerate(sections):
-        block, idx = format_section(section, idx)
-        pages.append(f"{intro}\n\n{block}" if i == 0 else block)
 
+    for section in sections:
+        block, next_idx = format_section(section, idx)
+        section_count = next_idx - idx
+        idx = next_idx
+
+        if current_blocks and current_count + section_count > max_per_page:
+            pages.append("\n\n".join(current_blocks))
+            current_blocks = []
+            current_count = 0
+
+        current_blocks.append(block)
+        current_count += section_count
+
+    if current_blocks:
+        pages.append("\n\n".join(current_blocks))
+
+    pages[0] = f"{intro}\n\n{pages[0]}"
     return pages
 
 def pagination_keyboard(page_idx, total_pages):
