@@ -709,12 +709,12 @@ def chunk_message(text, limit=4000):
 
     return chunks
 
-def build_initiative_pages(items, max_per_page=5):
-    """Build /initiativelist pages by packing whole weeks together, up to
-    max_per_page outings per page — never splitting a single week's outings
-    across two pages, but combining smaller weeks so a page doesn't end up with
-    just 1-2 outings on it. A week bigger than max_per_page on its own still
-    gets shown in full on its own page rather than being split."""
+def build_initiative_pages(items, per_page=5):
+    """Build /initiativelist pages with exactly per_page outings per page (except
+    possibly the last page), regardless of which week each outing belongs to.
+    A week that happens to span two pages gets its header repeated with a
+    "(cont'd)" marker on the following page, so it's still clear those outings
+    belong to the same week rather than looking orphaned."""
     sections = build_ordered_sections(items)
 
     intro = (
@@ -727,26 +727,43 @@ def build_initiative_pages(items, max_per_page=5):
     if not sections:
         return [intro]
 
+    # Flatten to (week_label, item) pairs, preserving chronological order.
+    flat_items = [
+        (section["label"], item)
+        for section in sections
+        for item in section["items"]
+    ]
+
     pages = []
-    current_blocks = []
-    current_count = 0
     idx = 1
+    seen_labels = set()
 
-    for section in sections:
-        block, next_idx = format_section(section, idx)
-        section_count = next_idx - idx
-        idx = next_idx
+    for start in range(0, len(flat_items), per_page):
+        chunk = flat_items[start:start + per_page]
+        lines = []
+        current_label = None
 
-        if current_blocks and current_count + section_count > max_per_page:
-            pages.append("\n\n".join(current_blocks))
-            current_blocks = []
-            current_count = 0
+        for label, item in chunk:
+            if label != current_label:
+                header = label + (" (cont'd)" if label in seen_labels else "")
+                lines.append(f"<b>🗓 {header}</b>")
+                seen_labels.add(label)
+                current_label = label
 
-        current_blocks.append(block)
-        current_count += section_count
+            contact = extract_contact_name(item["title"])
+            detail_lines = [
+                f"Date/Time/Venue: 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}",
+            ]
+            if contact:
+                detail_lines.append(f"Hanging out with: 🤝 {html.escape(contact)}")
+            detail_lines.append(f"People going: 👥 {html.escape(item['people'])}")
 
-    if current_blocks:
-        pages.append("\n\n".join(current_blocks))
+            lines.append(
+                f"<b>{idx}. Outing:</b> 🤝 {html.escape(item['title'])}\n" + "\n".join(detail_lines)
+            )
+            idx += 1
+
+        pages.append("\n\n".join(lines))
 
     pages[0] = f"{intro}\n\n{pages[0]}"
     return pages
