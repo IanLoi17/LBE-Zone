@@ -632,17 +632,38 @@ def split_two(text):
         parts = [text]
     return [p.strip() for p in parts]
 
+def extract_contact_name(title):
+    """Best-effort extraction of who an outing is 'with', by finding the last
+    standalone occurrence of the word 'with' in the title and taking whatever
+    follows it, trimmed of a trailing parenthetical aside and punctuation.
+    Returns None when the title has no 'with' in it (e.g. event names like
+    'Futsal' or 'SUSS Run Club') — in that case the display simply omits the
+    'Hanging out with' line rather than showing something misleading."""
+    matches = list(re.finditer(r"\bwith\b", title, flags=re.IGNORECASE))
+    if not matches:
+        return None
+
+    name = title[matches[-1].end():].strip()
+    name = re.sub(r"\s*\([^)]*\)\s*$", "", name).strip()  # drop trailing "(...)" aside
+    name = re.sub(r"[!.\s]+$", "", name).strip()          # drop trailing punctuation
+    return name or None
+
 def format_section(section, start_idx):
     """Render one week's header + its outings as a single block of text. Returns
     (block_text, next_idx) so numbering continues correctly across sections."""
     lines = [f"<b>🗓 {section['label']}</b>"]
     idx = start_idx
     for item in section["items"]:
+        contact = extract_contact_name(item["title"])
+        detail_lines = [
+            f"↳ Date/Time/Venue: 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}",
+        ]
+        if contact:
+            detail_lines.append(f"↳ Hanging out with: 🤝 {html.escape(contact)}")
+        detail_lines.append(f"↳ People going: 👥 {html.escape(item['people'])}")
+
         lines.append(
-            f"<b>{idx}.</b>\n"
-            f"Date/Time/Venue: 📅 {html.escape(item['date'])} · ⏰ {html.escape(item['time'])} · 📍 {html.escape(item['venue'])}\n"
-            f"Hanging out with: 🤝 {html.escape(item['title'])}\n"
-            f"People going: 👥 {html.escape(item['people'])}"
+            f"<b>{idx}. Outing:</b> 🤝 {html.escape(item['title'])}\n" + "\n".join(detail_lines)
         )
         idx += 1
     return "\n\n".join(lines), idx
@@ -688,12 +709,10 @@ def chunk_message(text, limit=4000):
 
     return chunks
 
-def build_initiative_pages(items, page_limit=1500):
-    """Build /initiativelist pages so a week's outings are never split across two
-    pages — each week's header and all its outings always stay together on the
-    same page. Packs as many whole weeks as fit under page_limit; if a single
-    week alone is bigger than page_limit, it still gets shown in full on its own
-    page rather than being cut (Telegram's real hard cap is 4096, much higher)."""
+def build_initiative_pages(items):
+    """Build /initiativelist pages with exactly one week per page — never combining
+    multiple weeks onto the same page, even if a week is short, and never splitting
+    a single week's outings across two pages."""
     sections = build_ordered_sections(items)
 
     intro = (
@@ -706,24 +725,11 @@ def build_initiative_pages(items, page_limit=1500):
     if not sections:
         return [intro]
 
-    week_blocks = []
-    idx = 1
-    for section in sections:
-        block, idx = format_section(section, idx)
-        week_blocks.append(block)
-
     pages = []
-    current = intro
-    is_first_block = True
-    for block in week_blocks:
-        candidate = f"{current}\n\n{block}"
-        if len(candidate) > page_limit and not is_first_block:
-            pages.append(current)
-            current = block
-        else:
-            current = candidate
-        is_first_block = False
-    pages.append(current)
+    idx = 1
+    for i, section in enumerate(sections):
+        block, idx = format_section(section, idx)
+        pages.append(f"{intro}\n\n{block}" if i == 0 else block)
 
     return pages
 
