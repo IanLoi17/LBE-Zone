@@ -408,7 +408,7 @@ def set_verse(verse):
     sheet.update_acell("A1", verse)
 
 ASK_NAME, ASK_GOAL, ASK_IMPACT, ASK_NEW_GOAL, ASK_CG, CONFIRM_IMPACT = range(6)
-INIT_DATE_TITLE, INIT_PURPOSE_IMPACT, INIT_TIME_VENUE, INIT_PEOPLE = range(6, 10)
+INIT_TITLE_PURPOSE_IMPACT, INIT_DATE_TIME_VENUE_PEOPLE = range(6, 8)
 EDIT_CHOOSE_ROW, EDIT_CHOOSE_FIELD, EDIT_NEW_VALUE = range(10, 13)
 REMOVE_INITIATIVE = 13
 ASK_ENCOURAGE = 14
@@ -632,6 +632,28 @@ def split_two(text):
         parts = [text]
     return [p.strip() for p in parts]
 
+def split_three(text):
+    """Split a message into three fields. Prefers | separators, falls back to
+    newlines. Returns a list of 1 to 3 stripped parts."""
+    if "|" in text:
+        parts = text.split("|", 2)
+    elif "\n" in text:
+        parts = text.split("\n", 2)
+    else:
+        parts = [text]
+    return [p.strip() for p in parts]
+
+def split_four(text):
+    """Split a message into four fields. Prefers | separators, falls back to
+    newlines. Returns a list of 1 to 4 stripped parts."""
+    if "|" in text:
+        parts = text.split("|", 3)
+    elif "\n" in text:
+        parts = text.split("\n", 3)
+    else:
+        parts = [text]
+    return [p.strip() for p in parts]
+
 def extract_contact_name(title):
     """Best-effort extraction of who an outing is 'with', by finding the last
     standalone occurrence of the word 'with' in the title and taking whatever
@@ -808,11 +830,11 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_init"] = {}
     await reply(update, 
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
-        "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
-        "<i>Example:\n29 June, Monday | XX with XX</i>",
+        "What is the <b>title</b>, <b>purpose</b>, and <b>impact</b> of the outing? Please follow the example below.\n\n"
+        "<i>Example:\nXX with XX | Continue building r/s with XX | Inspire XX to...</i>",
         parse_mode="HTML"
     )
-    return INIT_DATE_TITLE
+    return INIT_TITLE_PURPOSE_IMPACT
 
 async def initiative_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the Prev/Next buttons under /initiativelist. Re-reads the sheet fresh
@@ -922,63 +944,42 @@ async def remove_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply(update, chunk, parse_mode="HTML")
     return REMOVE_INITIATIVE
 
-# --- shared "add an outing" flow (4 prompts) -------------------------------
+# --- shared "add an outing" flow (2 prompts) -------------------------------
 
-async def init_collect_date_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    parts = split_two(update.message.text)
-    if len(parts) < 2 or not parts[1]:
+async def init_collect_title_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    parts = split_three(update.message.text)
+    if len(parts) < 3 or not parts[2]:
         await reply(update, 
-            "❌ Please enter both the date + day and title of the outing, separated by a |\n\n"
-            "<i>Example: 29 June, Monday | XX with XX</i>",
+            "❌ Please enter the title, purpose, and impact of the outing, separated by |\n\n"
+            "<i>Example: XX with XX | Continue building r/s with XX | Inspire XX to...</i>",
             parse_mode="HTML"
         )
-        return INIT_DATE_TITLE
+        return INIT_TITLE_PURPOSE_IMPACT
+
+    context.user_data["new_init"]["title"] = parts[0]
+    context.user_data["new_init"]["purpose"] = parts[1]
+    context.user_data["new_init"]["impact"] = parts[2]
+    await reply(update, 
+        "📅 Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Please follow the example below.\n\n"
+        "<i>Example:\n29 June, Monday | 2 PM | Location | Bran, Chaower</i>",
+        parse_mode="HTML"
+    )
+    return INIT_DATE_TIME_VENUE_PEOPLE
+
+async def init_collect_date_time_venue_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    parts = split_four(update.message.text)
+    if len(parts) < 4 or not parts[3]:
+        await reply(update, 
+            "❌ Please enter the date + day, time, venue, and who's going, separated by |\n\n"
+            "<i>Example: 29 June, Monday | 2 PM | Location | Bran, Chaower</i>",
+            parse_mode="HTML"
+        )
+        return INIT_DATE_TIME_VENUE_PEOPLE
 
     context.user_data["new_init"]["date"] = parts[0]
-    context.user_data["new_init"]["title"] = parts[1]
-    await reply(update, 
-        "🎯 What is the <b>purpose</b> and <b>impact</b> of this outing? Please follow the example below.\n\n"
-        "<i>Example:\nContinue building r/s with XX | Inspire XX to...</i>",
-        parse_mode="HTML"
-    )
-    return INIT_PURPOSE_IMPACT
-
-async def init_collect_purpose_impact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    parts = split_two(update.message.text)
-    if len(parts) < 2 or not parts[1]:
-        await reply(update, 
-            "❌ Please enter both the purpose and impact of the outing, separated by a |\n\n"
-            "<i>Example: Continue building r/s with XX | Inspire XX to...</i>",
-            parse_mode="HTML"
-        )
-        return INIT_PURPOSE_IMPACT
-
-    context.user_data["new_init"]["purpose"] = parts[0]
-    context.user_data["new_init"]["impact"] = parts[1]
-    await reply(update, 
-        "⏰ What is the <b>time</b> and <b>venue</b> of the outing? Please follow the example below.\n\n"
-        "<i>Example:\n2 PM | Location</i>",
-        parse_mode="HTML"
-    )
-    return INIT_TIME_VENUE
-
-async def init_collect_time_venue(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    parts = split_two(update.message.text)
-    if len(parts) < 2 or not parts[1]:
-        await reply(update, 
-            "❌ Please enter both the time and the venue, separated by a |\n\n"
-            "<i>Example: 2 PM | Location</i>",
-            parse_mode="HTML"
-        )
-        return INIT_TIME_VENUE
-
-    context.user_data["new_init"]["time"] = parts[0]
-    context.user_data["new_init"]["venue"] = parts[1]
-    await reply(update, "👥 Lastly, who's <b>going</b> for the outing?", parse_mode="HTML")
-    return INIT_PEOPLE
-
-async def init_collect_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_init"]["people"] = update.message.text.strip()
+    context.user_data["new_init"]["time"] = parts[1]
+    context.user_data["new_init"]["venue"] = parts[2]
+    context.user_data["new_init"]["people"] = parts[3]
     data = context.user_data.get("new_init", {})
 
     try:
@@ -1013,11 +1014,11 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["new_init"] = {}
         await reply(update, 
             "➕ Adding a new outing.\n\n"
-            "What is the <b>date</b> + <b>day</b> and <b>title</b> of the outing? Please follow the example below.\n\n"
-            "<i>Example:\n29 June, Monday | XX with XX</i>",
+            "What is the <b>title</b>, <b>purpose</b>, and <b>impact</b> of the outing? Please follow the example below.\n\n"
+            "<i>Example:\nXX with XX | Continue building r/s with XX | Inspire XX to...</i>",
             parse_mode="HTML"
         )
-        return INIT_DATE_TITLE
+        return INIT_TITLE_PURPOSE_IMPACT
 
     item = items[choice - 1]
     context.user_data["edit_row_num"] = item["row_num"]
@@ -1510,10 +1511,8 @@ def main():
         ],
         states={
             # add-an-outing flow (4 prompts)
-            INIT_DATE_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_date_title)],
-            INIT_PURPOSE_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_purpose_impact)],
-            INIT_TIME_VENUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_time_venue)],
-            INIT_PEOPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_people)],
+            INIT_TITLE_PURPOSE_IMPACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_title_details)],
+            INIT_DATE_TIME_VENUE_PEOPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, init_collect_date_time_venue_people)],
             # edit-an-outing flow
             EDIT_CHOOSE_ROW: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choose_row)],
             EDIT_CHOOSE_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_choose_field)],
