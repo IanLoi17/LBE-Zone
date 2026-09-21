@@ -685,7 +685,7 @@ def format_section(section, start_idx):
         detail_lines.append(f"People going: 👥 {html.escape(item['people'])}")
 
         lines.append(
-            f"<b>{idx}. Outing:</b> 🤝 {html.escape(item['title'])}\n" + "\n".join(detail_lines)
+            f"<b>{idx}. {html.escape(item['title'])}</b>\n" + "\n".join(detail_lines)
         )
         idx += 1
     return "\n\n".join(lines), idx
@@ -781,7 +781,7 @@ def build_initiative_pages(items, per_page=5):
             detail_lines.append(f"People going: 👥 {html.escape(item['people'])}")
 
             lines.append(
-                f"<b>{idx}. Outing:</b> 🤝 {html.escape(item['title'])}\n" + "\n".join(detail_lines)
+                f"<b>{idx}. {html.escape(item['title'])}</b>\n" + "\n".join(detail_lines)
             )
             idx += 1
 
