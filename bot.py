@@ -831,7 +831,7 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply(update, 
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
         "What is the <b>title</b>, <b>purpose</b>, and <b>impact</b> of the outing? Please follow the example below.\n\n"
-        "<i>Example:\nXX with XX | Continue building r/s with XX | Inspire XX to...</i>",
+        "<i>Example:\nXX, XX | Continue building r/s with XX | Inspire XX to...</i>",
         parse_mode="HTML"
     )
     return INIT_TITLE_PURPOSE_IMPACT
@@ -951,7 +951,7 @@ async def init_collect_title_details(update: Update, context: ContextTypes.DEFAU
     if len(parts) < 3 or not parts[2]:
         await reply(update, 
             "❌ Please enter the title, purpose, and impact of the outing, separated by |\n\n"
-            "<i>Example: XX with XX | Continue building r/s with XX | Inspire XX to...</i>",
+            "<i>Example: XX, XX | Continue building r/s with XX | Inspire XX to...</i>",
             parse_mode="HTML"
         )
         return INIT_TITLE_PURPOSE_IMPACT
@@ -961,7 +961,7 @@ async def init_collect_title_details(update: Update, context: ContextTypes.DEFAU
     context.user_data["new_init"]["impact"] = parts[2]
     await reply(update, 
         "📅 Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Please follow the example below.\n\n"
-        "<i>Example:\n29 June, Monday | 2 PM | Location | Bran, Chaower</i>",
+        "<i>Example:\n29 June, Monday | 2 PM | Location | XX, XX</i>",
         parse_mode="HTML"
     )
     return INIT_DATE_TIME_VENUE_PEOPLE
@@ -971,7 +971,7 @@ async def init_collect_date_time_venue_people(update: Update, context: ContextTy
     if len(parts) < 4 or not parts[3]:
         await reply(update, 
             "❌ Please enter the date + day, time, venue, and who's going, separated by |\n\n"
-            "<i>Example: 29 June, Monday | 2 PM | Location | Bran, Chaower</i>",
+            "<i>Example: 29 June, Monday | 2 PM | Location | XX, XX</i>",
             parse_mode="HTML"
         )
         return INIT_DATE_TIME_VENUE_PEOPLE
@@ -1015,7 +1015,7 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply(update, 
             "➕ Adding a new outing.\n\n"
             "What is the <b>title</b>, <b>purpose</b>, and <b>impact</b> of the outing? Please follow the example below.\n\n"
-            "<i>Example:\nXX with XX | Continue building r/s with XX | Inspire XX to...</i>",
+            "<i>Example:\nXX, XX | Continue building r/s with XX | Inspire XX to...</i>",
             parse_mode="HTML"
         )
         return INIT_TITLE_PURPOSE_IMPACT
