@@ -292,7 +292,7 @@ def group_initiatives_by_week(items):
         target.append((week_start, week_end, group_items))
 
     upcoming.sort(key=lambda g: g[0])
-    past.sort(key=lambda g: g[0])
+    past.sort(key=lambda g: g[0], reverse=True)
     return upcoming, past, tbc_items
 
 def build_ordered_sections(items):
