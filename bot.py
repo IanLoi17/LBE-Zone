@@ -950,7 +950,7 @@ async def init_collect_title_details(update: Update, context: ContextTypes.DEFAU
     context.user_data["new_init"]["purpose"] = parts[1]
     context.user_data["new_init"]["impact"] = ""
     await reply(update, 
-        "📅 Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Type it all on one line, separating each part with | (or just a double space).\n\n"
+        "Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Type it all on one line, separating each part with | (or just a double space).\n\n"
         "<i>Example:\n29 June, Monday | 2 PM | Location | XX, XX</i>",
         parse_mode="HTML"
     )
