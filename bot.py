@@ -621,38 +621,36 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
-def split_two(text):
-    """Split a message into two fields. Prefers a | separator, falls back to a newline.
-    Returns a list of 1 or 2 stripped parts."""
-    if "|" in text:
-        parts = text.split("|", 1)
+def flexible_split(text, num_fields):
+    """Split a message into up to num_fields parts, as forgiving as possible about
+    how the admin separates them. Tries, in order: | or \\ (treated as the same
+    divider, so an accidental backslash instead of a pipe still works), then
+    two-or-more spaces in a row (people often naturally double-space when typing
+    everything on one line, and a genuine double space almost never appears
+    inside a normal title/date/time/venue), then a line break as a last resort.
+    Line breaks are checked last on purpose — the team's intended usage is one
+    line per message, so if someone accidentally hits Enter partway through
+    typing while also using | or a double space, that accidental line break
+    should never override the separator they actually meant to use (a stray
+    newline right next to a double space is already absorbed harmlessly, since
+    the double-space pattern matches any run of whitespace, newlines included).
+    Whitespace around each field is trimmed. This never rejects or blocks input
+    — if fewer than num_fields parts are found, the missing ones are simply left
+    blank, since every field can still be filled in later via /editlist."""
+    normalized = text.replace("\\", "|")
+    if "|" in normalized:
+        parts = normalized.split("|", num_fields - 1)
+    elif re.search(r"\s{2,}", text):
+        parts = re.split(r"\s{2,}", text, maxsplit=num_fields - 1)
     elif "\n" in text:
-        parts = text.split("\n", 1)
+        parts = text.split("\n", num_fields - 1)
     else:
         parts = [text]
-    return [p.strip() for p in parts]
 
-def split_three(text):
-    """Split a message into three fields. Prefers | separators, falls back to
-    newlines. Returns a list of 1 to 3 stripped parts."""
-    if "|" in text:
-        parts = text.split("|", 2)
-    elif "\n" in text:
-        parts = text.split("\n", 2)
-    else:
-        parts = [text]
-    return [p.strip() for p in parts]
-
-def split_four(text):
-    """Split a message into four fields. Prefers | separators, falls back to
-    newlines. Returns a list of 1 to 4 stripped parts."""
-    if "|" in text:
-        parts = text.split("|", 3)
-    elif "\n" in text:
-        parts = text.split("\n", 3)
-    else:
-        parts = [text]
-    return [p.strip() for p in parts]
+    parts = [re.sub(r"\s*\n\s*", " ", p).strip() for p in parts]
+    while len(parts) < num_fields:
+        parts.append("")
+    return parts[:num_fields]
 
 def extract_contact_name(title):
     """Best-effort extraction of who an outing is 'with', by finding the last
@@ -830,8 +828,8 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_init"] = {}
     await reply(update, 
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
-        "What is the <b>title</b>, <b>purpose</b>, and <b>impact</b> of the outing? Please follow the example below.\n\n"
-        "<i>Example:\nXX with XX | Continue building r/s with XX | Inspire XX to...</i>",
+        "What is the <b>title</b> and <b>purpose</b> of the outing? Type it all on one line, separating each part with | (or just a double space).\n\n"
+        "<i>Example:\nRunning with Jay | To connect and know him deeper</i>",
         parse_mode="HTML"
     )
     return INIT_TITLE_PURPOSE_IMPACT
@@ -947,47 +945,47 @@ async def remove_list_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- shared "add an outing" flow (2 prompts) -------------------------------
 
 async def init_collect_title_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    parts = split_three(update.message.text)
-    if len(parts) < 3 or not parts[2]:
-        await reply(update, 
-            "❌ Please enter the title, purpose, and impact of the outing, separated by |\n\n"
-            "<i>Example: XX with XX | Continue building r/s with XX | Inspire XX to...</i>",
-            parse_mode="HTML"
-        )
-        return INIT_TITLE_PURPOSE_IMPACT
-
+    parts = flexible_split(update.message.text, 2)
     context.user_data["new_init"]["title"] = parts[0]
     context.user_data["new_init"]["purpose"] = parts[1]
-    context.user_data["new_init"]["impact"] = parts[2]
+    context.user_data["new_init"]["impact"] = ""
     await reply(update, 
-        "📅 Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Please follow the example below.\n\n"
+        "📅 Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Type it all on one line, separating each part with | (or just a double space).\n\n"
         "<i>Example:\n29 June, Monday | 2 PM | Location | XX, XX</i>",
         parse_mode="HTML"
     )
     return INIT_DATE_TIME_VENUE_PEOPLE
 
 async def init_collect_date_time_venue_people(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    parts = split_four(update.message.text)
-    if len(parts) < 4 or not parts[3]:
-        await reply(update, 
-            "❌ Please enter the date + day, time, venue, and who's going, separated by |\n\n"
-            "<i>Example: 29 June, Monday | 2 PM | Location | XX, XX</i>",
-            parse_mode="HTML"
-        )
-        return INIT_DATE_TIME_VENUE_PEOPLE
-
+    parts = flexible_split(update.message.text, 4)
     context.user_data["new_init"]["date"] = parts[0]
     context.user_data["new_init"]["time"] = parts[1]
     context.user_data["new_init"]["venue"] = parts[2]
     context.user_data["new_init"]["people"] = parts[3]
     data = context.user_data.get("new_init", {})
 
+    # Impact is intentionally left blank by design (not asked for up front), so it's
+    # excluded from this check — this only flags fields that should have been filled
+    # in but came out empty, most likely because a divider was missing.
+    field_labels = {
+        "title": "Title", "purpose": "Purpose", "date": "Date",
+        "time": "Time", "venue": "Venue", "people": "People going",
+    }
+    missing = [label for key, label in field_labels.items() if not data.get(key, "").strip()]
+
     try:
         add_new_initiative(data)
+        warning = ""
+        if missing:
+            warning = (
+                f"\n\n⚠️ <i>Left blank: {', '.join(missing)} — looks like a divider might "
+                "have been missing. You can fill it in via /editlist.</i>"
+            )
         await reply(update, 
             "✅ Outing saved!\n\n"
             f"🏷️ {html.escape(data.get('title', ''))}\n"
-            f"📅 {html.escape(data.get('date', ''))}\n\n"
+            f"📅 {html.escape(data.get('date', ''))}"
+            f"{warning}\n\n"
             "Use /initiativelist to see the full list, /editlist to edit or add outings, or /removeinitiative to remove an outing.",
             parse_mode="HTML"
         )
@@ -1014,8 +1012,8 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["new_init"] = {}
         await reply(update, 
             "➕ Adding a new outing.\n\n"
-            "What is the <b>title</b>, <b>purpose</b>, and <b>impact</b> of the outing? Please follow the example below.\n\n"
-            "<i>Example:\nXX with XX | Continue building r/s with XX | Inspire XX to...</i>",
+            "What is the <b>title</b> and <b>purpose</b> of the outing? Type it all on one line, separating each part with | (or just a double space).\n\n"
+            "<i>Example:\nRunning with Jay | To connect and know him deeper</i>",
             parse_mode="HTML"
         )
         return INIT_TITLE_PURPOSE_IMPACT
@@ -1521,6 +1519,7 @@ def main():
             REMOVE_INITIATIVE: [MessageHandler(filters.TEXT & ~filters.COMMAND, remove_initiative)]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
     )
     app.add_handler(initiative_conversation)
     app.add_handler(CallbackQueryHandler(initiative_page_callback, pattern="^initpage:"))
