@@ -829,7 +829,7 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await reply(update, 
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
         "What is the <b>title</b> and <b>purpose</b> of the outing? Type it all on one line, separating each part with | (or just a double space).\n\n"
-        "<i>Example:\nRunning with Jay | To connect and know him deeper</i>",
+        "<i>Example:\nXX with XX | Continue building r/s with XX</i>",
         parse_mode="HTML"
     )
     return INIT_TITLE_PURPOSE_IMPACT
@@ -1013,7 +1013,7 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply(update, 
             "➕ Adding a new outing.\n\n"
             "What is the <b>title</b> and <b>purpose</b> of the outing? Type it all on one line, separating each part with | (or just a double space).\n\n"
-            "<i>Example:\nRunning with Jay | To connect and know him deeper</i>",
+            "<i>Example:\nXX with XX | Continue building r/s with XX</i>",
             parse_mode="HTML"
         )
         return INIT_TITLE_PURPOSE_IMPACT
