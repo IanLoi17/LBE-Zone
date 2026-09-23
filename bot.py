@@ -829,8 +829,8 @@ async def initiative_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_init"] = {}
     await reply(update, 
         "📋 <b>No outings yet — let's add the first one!</b>\n\n"
-        "What is the <b>title</b> and <b>purpose</b> of the outing? Type it all on one line, separating each part with | (or just a double space).\n\n"
-        "<i>Example:\nXX with XX | Continue building r/s with XX</i>",
+        "What is the <b>title</b> and <b>purpose</b> of the outing? Type it all on one line, separating each part with a dash - (or a double space).\n\n"
+        "<i>Example:\nXX with XX - Continue building r/s with XX</i>",
         parse_mode="HTML"
     )
     return INIT_TITLE_PURPOSE_IMPACT
@@ -951,9 +951,9 @@ async def init_collect_title_details(update: Update, context: ContextTypes.DEFAU
     context.user_data["new_init"]["purpose"] = parts[1]
     context.user_data["new_init"]["impact"] = ""
     await reply(update, 
-        "Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Type it all on one line, separating each part with | (or just a double space).\n\n"
+        "Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Type it all on one line, separating each part with a dash - (or a double space).\n\n"
         "<i>For the month, please use either the full name (e.g. June) or the 3-letter short form (e.g. Jun).</i>\n\n"
-        "<i>Example:\n29 June, Monday | 2 PM | Location | XX, XX</i>",
+        "<i>Example:\n29 June, Monday - 2 PM - Location - XX, XX</i>",
         parse_mode="HTML"
     )
     return INIT_DATE_TIME_VENUE_PEOPLE
@@ -1014,8 +1014,8 @@ async def edit_choose_row(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["new_init"] = {}
         await reply(update, 
             "➕ Adding a new outing.\n\n"
-            "What is the <b>title</b> and <b>purpose</b> of the outing? Type it all on one line, separating each part with | (or just a double space).\n\n"
-            "<i>Example:\nXX with XX | Continue building r/s with XX</i>",
+            "What is the <b>title</b> and <b>purpose</b> of the outing? Type it all on one line, separating each part with a dash - (or a double space).\n\n"
+            "<i>Example:\nXX with XX - Continue building r/s with XX</i>",
             parse_mode="HTML"
         )
         return INIT_TITLE_PURPOSE_IMPACT
