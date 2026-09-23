@@ -623,25 +623,26 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def flexible_split(text, num_fields):
     """Split a message into up to num_fields parts, as forgiving as possible about
-    how the admin separates them. Tries, in order: | or \\ (treated as the same
-    divider, so an accidental backslash instead of a pipe still works), then
-    two-or-more spaces in a row (people often naturally double-space when typing
-    everything on one line, and a genuine double space almost never appears
-    inside a normal title/date/time/venue), then a line break as a last resort.
-    Line breaks are checked last on purpose — the team's intended usage is one
-    line per message, so if someone accidentally hits Enter partway through
-    typing while also using | or a double space, that accidental line break
-    should never override the separator they actually meant to use (a stray
-    newline right next to a double space is already absorbed harmlessly, since
-    the double-space pattern matches any run of whitespace, newlines included).
+    how the admin separates them. Tries, in order: any symbol(s) padded by a
+    space on both sides — e.g. " | ", " - ", " ; ", " / " — all treated as the
+    same kind of divider regardless of which exact symbol was used, so an
+    accidental wrong character still works; then two-or-more spaces in a row
+    with no symbol at all (people often naturally double-space when typing
+    everything on one line); then a line break as a last resort. Requiring a
+    space on both sides of a symbol is what keeps this safe — it won't
+    misfire on punctuation that's actually part of a field, like "r/s",
+    "7.30pm", or "Bran, Chaower", since none of those have a space on both
+    sides of the punctuation. Line breaks are checked last on purpose — the
+    team's intended usage is one line per message, so an accidental Enter
+    should never override a symbol or double space the admin actually used (a
+    stray newline right next to one is already absorbed harmlessly, since
+    these patterns match any run of whitespace, newlines included).
     Whitespace around each field is trimmed. This never rejects or blocks input
     — if fewer than num_fields parts are found, the missing ones are simply left
     blank, since every field can still be filled in later via /editlist."""
-    normalized = text.replace("\\", "|")
-    if "|" in normalized:
-        parts = normalized.split("|", num_fields - 1)
-    elif re.search(r"\s{2,}", text):
-        parts = re.split(r"\s{2,}", text, maxsplit=num_fields - 1)
+    divider = r"\s+[^\w\s]+\s+|\s{2,}"
+    if re.search(divider, text):
+        parts = re.split(divider, text, maxsplit=num_fields - 1)
     elif "\n" in text:
         parts = text.split("\n", num_fields - 1)
     else:
@@ -951,6 +952,7 @@ async def init_collect_title_details(update: Update, context: ContextTypes.DEFAU
     context.user_data["new_init"]["impact"] = ""
     await reply(update, 
         "Lastly, what's the <b>date + day</b>, <b>time</b>, <b>venue</b>, and who's <b>going</b>? Type it all on one line, separating each part with | (or just a double space).\n\n"
+        "<i>For the month, please use either the full name (e.g. June) or the 3-letter short form (e.g. Jun).</i>\n\n"
         "<i>Example:\n29 June, Monday | 2 PM | Location | XX, XX</i>",
         parse_mode="HTML"
     )
